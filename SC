@@ -408,7 +408,7 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent         = LocalPlayer.PlayerGui
 
 -- =====================================================
--- MAIN WINDOW  560 × 630
+-- MAIN WINDOW  280 × 315
 -- =====================================================
 local Win = Instance.new("Frame", ScreenGui)
 Win.Name             = "Win"
