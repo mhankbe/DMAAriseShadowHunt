@@ -1,0 +1,1372 @@
+-- =====================================================
+--   ARISE SHADOW HUNT | AUTOMATION HUB v2.0
+--   Mass Attack AKTIF menggunakan EnemyGuid + ClickEnemy
+--   Map Rotation AKTIF
+--   Auto Raid | Roll Equipment | Roll Sword | Roll Ability
+--   → Coming Soon (butuh data Simple Spy)
+-- =====================================================
+
+local Players           = game:GetService("Players")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+-- =====================================================
+local Remotes      = ReplicatedStorage:WaitForChild("Remotes")
+local RE_Start     = Remotes:WaitForChild("StartLocalPlayerTeleport")
+local RE_Local     = Remotes:WaitForChild("LocalPlayerTeleport")
+local RE_Click     = Remotes:WaitForChild("ClickEnemy")        -- InvokeServer
+local RE_Attack    = Remotes:WaitForChild("PlayerClickAttackSkill") -- FireServer
+local RE_Collect   = Remotes:WaitForChild("CollectItem")
+local RE_Reward    = Remotes:WaitForChild("ExtraReward")
+
+-- =====================================================
+-- MAP DATA
+-- =====================================================
+local MAPS = {
+    { name="Map 1",  id=50001, remote="Start" },
+    { name="Map 2",  id=50002, remote="Start" },
+    { name="Map 3",  id=50003, remote="Start" },
+    { name="Map 4",  id=50004, remote="Start" },
+    { name="Map 5",  id=50005, remote="Local" },
+    { name="Map 6",  id=50006, remote="Local" },
+    { name="Map 7",  id=50007, remote="Local" },
+    { name="Map 8",  id=50008, remote="Local" },
+    { name="Map 9",  id=50009, remote="Local" },
+    { name="Map 10", id=50010, remote="Local" },
+    { name="Map 11", id=50011, remote="Local" },
+    { name="Map 12", id=50012, remote="Local" },
+    { name="Map 13", id=50013, remote="Local" },
+    { name="Map 14", id=50014, remote="Local" },
+    { name="Map 15", id=50015, remote="Local" },
+    { name="Map 16", id=50016, remote="Local" },
+    { name="Map 17", id=50017, remote="Local" },
+    { name="Map 18", id=50018, remote="Local" },
+}
+
+-- =====================================================
+-- TELEPORT MAP
+-- =====================================================
+local function TeleportToMap(mapData)
+    if mapData.remote == "Start" then
+        pcall(function() RE_Start:FireServer({ mapId = mapData.id }) end)
+    else
+        pcall(function() RE_Local:FireServer({ mapId = mapData.id }) end)
+    end
+end
+
+-- =====================================================
+-- MASS ATTACK CORE v5 - CONFIRMED DATA
+--
+-- DATA CONFIRMED dari Simple Spy:
+--
+-- 1. ClickEnemy:InvokeServer({enemyGuid, enemyPos})
+-- 2. PlayerClickAttackSkill:FireServer({attackEnemyGUID = guid})
+--    ↑ PENTING: butuh attackEnemyGUID, bukan {} kosong!
+-- 3. EnemyDeath event → musuh mati
+-- 4. DropItems event  → data.rewards[i].guid = guid drop
+-- 5. CollectItem:InvokeServer(guid) → collect tiap item/gold
+-- 6. GetDrawHeroId:InvokeServer({...}) → TOMBOL DESTROYER
+-- 7. ExtraReward:FireServer({isSell=true, guid=...}) → klaim
+--
+-- PRINSIP:
+--   • Karakter DIAM di tempat — tidak teleport kemana-mana
+--   • Spam ClickEnemy + PlayerClickAttackSkill dengan guid benar
+--   • DropItems event → auto collect semua reward
+--   • GetDrawHeroId → auto tekan Destroyer + ExtraReward
+-- =====================================================
+
+local MassAttack = {
+    running     = false,
+    thread      = nil,
+    spamDelay   = 0.1,
+    looping     = true,
+    autoCollect = true,
+    killed      = 0,
+    collected   = 0,
+}
+
+-- remotes tambahan
+local RE_DrawHero = Remotes:WaitForChild("GetDrawHeroId")
+local RE_Extra    = Remotes:WaitForChild("ExtraReward")
+
+-- ── GET ENEMIES ──────────────────────────────────────
+local function GetEnemies()
+    local list   = {}
+    local folder = workspace:FindFirstChild("Enemys")
+    if not folder then return list end
+    for _, enemy in ipairs(folder:GetChildren()) do
+        if enemy:IsA("Model") then
+            local guid = enemy:GetAttribute("EnemyGuid")
+            local hrp  = enemy:FindFirstChild("HumanoidRootPart")
+            local hum  = enemy:FindFirstChildOfClass("Humanoid")
+            if guid and hrp and hum and hum.Health > 0 then
+                table.insert(list, {
+                    model = enemy,
+                    guid  = guid,
+                    hrp   = hrp,
+                })
+            end
+        end
+    end
+    return list
+end
+
+-- ── AUTO COLLECT via DropItems event ─────────────────
+-- Setiap musuh mati server kirim DropItems event berisi rewards
+-- Kita collect semua guid dari rewards → CollectItem:InvokeServer
+local collectedGuids = {}
+
+local RE_DropItems = Remotes:WaitForChild("DropItems")
+RE_DropItems.OnClientEvent:Connect(function(data)
+    if not MassAttack.autoCollect then return end
+    if not data or not data.rewards then return end
+    task.spawn(function()
+        for _, reward in pairs(data.rewards) do
+            if type(reward) == "table" and reward.guid then
+                local guid = reward.guid
+                if not collectedGuids[guid] then
+                    collectedGuids[guid] = true
+                    pcall(function()
+                        RE_Collect:InvokeServer(guid)
+                    end)
+                    MassAttack.collected = MassAttack.collected + 1
+                    task.wait(0.02)
+                end
+            end
+        end
+    end)
+end)
+
+-- ── AUTO DESTROYER via GetDrawHeroId event ────────────
+-- Setelah musuh mati, server kirim GetDrawHeroId event
+-- berisi data reward Destroyer → langsung InvokeServer + ExtraReward
+local RE_DrawHeroEvent = Remotes:WaitForChild("GetDrawHeroId")
+
+-- Listen jika GetDrawHeroId adalah RemoteEvent (OnClientEvent)
+-- Jika tidak, kita tangani via intercept manual
+local destroyerQueue = {}  -- antrian destroyer data
+
+-- Coba connect sebagai event dulu
+pcall(function()
+    if RE_DrawHeroEvent:IsA("RemoteEvent") then
+        RE_DrawHeroEvent.OnClientEvent:Connect(function(data)
+            if not MassAttack.autoCollect then return end
+            if data and data.guid then
+                table.insert(destroyerQueue, data)
+            end
+        end)
+    end
+end)
+
+-- ── TRACK ENEMY DEATH ────────────────────────────────
+local deadGuids     = {}
+local RE_EnemyDeath = Remotes:WaitForChild("EnemyDeath")
+RE_EnemyDeath.OnClientEvent:Connect(function(data)
+    if not data then return end
+    local guid = data.enemyGuid or data.guid
+    if guid then
+        deadGuids[guid] = true
+        if MassAttack.running then
+            MassAttack.killed = MassAttack.killed + 1
+        end
+    end
+end)
+
+-- ── HELPER ───────────────────────────────────────────
+local function IsEnemyDead(e)
+    if deadGuids[e.guid] then return true end
+    if not e.model or not e.model.Parent then return true end
+    local hum = e.model:FindFirstChildOfClass("Humanoid")
+    return not hum or hum.Health <= 0
+end
+
+-- ── AUTO DESTROYER WORKER ────────────────────────────
+-- Proses antrian destroyer secara terpisah agar tidak block attack loop
+local function StartDestroyerWorker()
+    task.spawn(function()
+        while MassAttack.running do
+            if #destroyerQueue > 0 then
+                local data = table.remove(destroyerQueue, 1)
+                -- Step 1: Tekan tombol Destroyer = GetDrawHeroId:InvokeServer
+                pcall(function()
+                    RE_DrawHero:InvokeServer({
+                        expireTime   = data.expireTime or (os.time() + 30),
+                        quirks       = data.quirks or {0, 0, 0},
+                        monsterGuid  = data.monsterGuid or "",
+                        monsterId    = data.monsterId or 0,
+                        guid         = data.guid,
+                        multiplier   = data.multiplier or 1,
+                        pos          = data.pos or Vector3.new(0,0,0),
+                    })
+                end)
+                task.wait(0.1)
+                -- Step 2: Klaim reward Destroyer = ExtraReward:FireServer
+                pcall(function()
+                    RE_Extra:FireServer({
+                        isSell = true,
+                        guid   = data.guid,
+                    })
+                end)
+            end
+            task.wait(0.05)
+        end
+    end)
+end
+
+-- ── MAIN ATTACK LOOP (1 map, loop sampai semua mati) ─
+local function AttackCurrentMap(onStatus)
+    -- reset tracker tiap masuk map baru
+    deadGuids      = {}
+    collectedGuids = {}
+    destroyerQueue = {}
+
+    -- tunggu musuh muncul dulu (max 8 detik)
+    local waitT = 0
+    while waitT < 8 do
+        if #GetEnemies() > 0 then break end
+        task.wait(0.5)
+        waitT = waitT + 0.5
+    end
+
+    local enemies = GetEnemies()
+    if #enemies == 0 then
+        if onStatus then onStatus("⚠ Tidak ada musuh di map ini", false) end
+        return
+    end
+
+    if onStatus then
+        onStatus("⚔ " .. #enemies .. " musuh — mulai serang!", true)
+    end
+
+    local timeout = 180  -- max 3 menit per map
+    local elapsed = 0
+
+    while MassAttack.running and elapsed < timeout do
+        -- refresh enemy list setiap iterasi (tangkap respawn juga)
+        local alive = {}
+        for _, e in ipairs(GetEnemies()) do
+            if not IsEnemyDead(e) then
+                table.insert(alive, e)
+            end
+        end
+
+        if #alive == 0 then
+            -- semua mati, tunggu sebentar untuk respawn
+            if onStatus then
+                onStatus("🔄 Semua mati, cek respawn...", true)
+            end
+            task.wait(2)
+
+            -- cek lagi apakah ada respawn
+            local respawn = GetEnemies()
+            if #respawn == 0 then
+                -- tidak ada respawn, selesai di map ini
+                break
+            else
+                -- ada respawn, reset dan lanjut serang
+                deadGuids      = {}
+                collectedGuids = {}
+                if onStatus then
+                    onStatus("♻ Respawn! " .. #respawn .. " musuh baru", true)
+                end
+                continue
+            end
+        end
+
+        -- spam remote ke semua musuh hidup — karakter DIAM
+        for _, e in ipairs(alive) do
+            if not MassAttack.running then break end
+            local hrp = e.model:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                pcall(function()
+                    RE_Click:InvokeServer({
+                        enemyGuid = e.guid,
+                        enemyPos  = hrp.Position,
+                    })
+                end)
+                pcall(function()
+                    RE_Attack:FireServer({
+                        attackEnemyGUID = e.guid,
+                    })
+                end)
+            end
+        end
+
+        if onStatus then
+            onStatus(
+                "⚔ "..#alive.." hidup  ✅ "..MassAttack.killed.." mati"
+                .."  💎 "..MassAttack.collected.." collect",
+                true
+            )
+        end
+
+        task.wait(MassAttack.spamDelay)
+        elapsed = elapsed + MassAttack.spamDelay
+    end
+end
+
+-- ── START / STOP ─────────────────────────────────────
+-- Map Rotation terintegrasi di dalam Mass Attack
+-- Jika ada map dipilih: teleport ke map → attack → pindah map → repeat
+-- Jika tidak ada map dipilih: attack map sekarang saja, loop terus
+
+local MapRotation = {
+    selected  = {},   -- list index map yang dipilih
+    delay     = 5,    -- detik tunggu setelah teleport sebelum attack
+    mapIndex  = 1,    -- index map saat ini dalam rotation
+}
+
+local function StartMassAttack(onStatus, onToggle)
+    if MassAttack.running then return end
+    MassAttack.running   = true
+    MassAttack.killed    = 0
+    MassAttack.collected = 0
+
+    StartDestroyerWorker()
+
+    MassAttack.thread = task.spawn(function()
+        while MassAttack.running do
+            local selectedMaps = MapRotation.selected
+
+            if #selectedMaps > 0 then
+                -- MODE: Map Rotation + Mass Attack
+                -- loop semua map yang dipilih secara berurutan
+                for _, mapIdx in ipairs(selectedMaps) do
+                    if not MassAttack.running then break end
+
+                    local mapData = MAPS[mapIdx]
+                    if onStatus then
+                        onStatus(
+                            "🗺 Pindah ke " .. mapData.name .. "...",
+                            true
+                        )
+                    end
+
+                    -- teleport ke map
+                    TeleportToMap(mapData)
+                    task.wait(MapRotation.delay)
+
+                    -- attack semua musuh di map ini
+                    AttackCurrentMap(onStatus)
+
+                    if onStatus then
+                        onStatus(
+                            "✅ " .. mapData.name .. " selesai!"
+                            .."  💎 "..MassAttack.collected.." collect",
+                            true
+                        )
+                    end
+
+                    task.wait(0.5)
+                end
+            else
+                -- MODE: Mass Attack di map sekarang saja, loop terus
+                AttackCurrentMap(onStatus)
+                if MassAttack.running then
+                    if onStatus then
+                        onStatus("🔄 Ronde selesai, ulang...", true)
+                    end
+                    task.wait(1)
+                end
+            end
+        end
+
+        MassAttack.running = false
+        if onToggle then onToggle(false) end
+    end)
+end
+
+local function StopMassAttack()
+    MassAttack.running = false
+    if MassAttack.thread then
+        task.cancel(MassAttack.thread)
+        MassAttack.thread = nil
+    end
+end
+
+local function StopMapRotation()
+    -- Map Rotation sekarang terintegrasi, stop via StopMassAttack
+    StopMassAttack()
+end
+
+-- =====================================================
+-- CLEANUP OLD GUI
+-- =====================================================
+if LocalPlayer.PlayerGui:FindFirstChild("ASH_Hub") then
+    LocalPlayer.PlayerGui.ASH_Hub:Destroy()
+end
+
+-- =====================================================
+-- SCREEN GUI
+-- =====================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "ASH_Hub"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent         = LocalPlayer.PlayerGui
+
+-- =====================================================
+-- MAIN WINDOW  560 × 630
+-- =====================================================
+local Win = Instance.new("Frame", ScreenGui)
+Win.Name             = "Win"
+Win.Size             = UDim2.new(0, 560, 0, 630)
+Win.Position         = UDim2.new(0.5, -280, 0.5, -315)
+Win.BackgroundColor3 = Color3.fromRGB(7, 5, 18)
+Win.BorderSizePixel  = 0
+Win.ClipsDescendants = true
+Instance.new("UICorner", Win).CornerRadius = UDim.new(0, 18)
+
+local winStroke = Instance.new("UIStroke", Win)
+winStroke.Color        = Color3.fromRGB(100, 38, 220)
+winStroke.Thickness    = 1.5
+winStroke.Transparency = 0.18
+
+local winGrad = Instance.new("UIGradient", Win)
+winGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(13,  8, 32)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB( 7,  5, 18)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(11,  8, 26)),
+})
+winGrad.Rotation = 145
+
+-- =====================================================
+-- TITLE BAR
+-- =====================================================
+local TBar = Instance.new("Frame", Win)
+TBar.Size             = UDim2.new(1, 0, 0, 52)
+TBar.BackgroundColor3 = Color3.fromRGB(16, 7, 38)
+TBar.BorderSizePixel  = 0
+Instance.new("UICorner", TBar).CornerRadius = UDim.new(0, 18)
+
+local tFix = Instance.new("Frame", TBar)
+tFix.Size             = UDim2.new(1, 0, 0, 18)
+tFix.Position         = UDim2.new(0, 0, 1, -18)
+tFix.BackgroundColor3 = Color3.fromRGB(16, 7, 38)
+tFix.BorderSizePixel  = 0
+
+local tGrad = Instance.new("UIGradient", TBar)
+tGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(95, 32, 215)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(52, 14, 135)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(16,  7,  38)),
+})
+tGrad.Rotation = 90
+
+local tIcon = Instance.new("TextLabel", TBar)
+tIcon.Size               = UDim2.new(0, 30, 0, 30)
+tIcon.Position           = UDim2.new(0, 14, 0.5, -15)
+tIcon.BackgroundTransparency = 1
+tIcon.Text               = "⚔"
+tIcon.TextSize           = 20
+tIcon.Font               = Enum.Font.GothamBold
+tIcon.TextColor3         = Color3.fromRGB(255, 210, 55)
+
+local tTitle = Instance.new("TextLabel", TBar)
+tTitle.Size              = UDim2.new(0, 260, 0, 18)
+tTitle.Position          = UDim2.new(0, 48, 0, 8)
+tTitle.BackgroundTransparency = 1
+tTitle.Text              = "ARISE SHADOW HUNT"
+tTitle.TextSize          = 13
+tTitle.Font              = Enum.Font.GothamBold
+tTitle.TextColor3        = Color3.fromRGB(255, 255, 255)
+tTitle.TextXAlignment    = Enum.TextXAlignment.Left
+
+local tSub = Instance.new("TextLabel", TBar)
+tSub.Size                = UDim2.new(0, 260, 0, 13)
+tSub.Position            = UDim2.new(0, 48, 0, 28)
+tSub.BackgroundTransparency = 1
+tSub.Text                = "AUTOMATION HUB  •  v2.0"
+tSub.TextSize            = 8
+tSub.Font                = Enum.Font.Gotham
+tSub.TextColor3          = Color3.fromRGB(145, 85, 255)
+tSub.TextXAlignment      = Enum.TextXAlignment.Left
+
+local function WinBtn(xOff, col, txt)
+    local b = Instance.new("TextButton", TBar)
+    b.Size             = UDim2.new(0, 24, 0, 24)
+    b.Position         = UDim2.new(1, xOff, 0.5, -12)
+    b.BackgroundColor3 = col
+    b.BorderSizePixel  = 0
+    b.Text             = txt
+    b.TextSize         = 10
+    b.Font             = Enum.Font.GothamBold
+    b.TextColor3       = Color3.fromRGB(255, 255, 255)
+    b.AutoButtonColor  = false
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+local CloseBtn = WinBtn(-30, Color3.fromRGB(170, 35, 58), "✕")
+local MinBtn   = WinBtn(-60, Color3.fromRGB(40, 22, 75),  "—")
+CloseBtn.MouseButton1Click:Connect(function()
+    StopMassAttack()
+    StopMapRotation()
+    ScreenGui:Destroy()
+end)
+
+-- =====================================================
+-- SIDEBAR  150px
+-- =====================================================
+local Sidebar = Instance.new("Frame", Win)
+Sidebar.Size             = UDim2.new(0, 150, 1, -52)
+Sidebar.Position         = UDim2.new(0, 0, 0, 52)
+Sidebar.BackgroundColor3 = Color3.fromRGB(10, 6, 24)
+Sidebar.BorderSizePixel  = 0
+
+Instance.new("UIStroke", Sidebar).Color = Color3.fromRGB(42, 16, 80)
+
+local divLine = Instance.new("Frame", Win)
+divLine.Size             = UDim2.new(0, 1, 1, -52)
+divLine.Position         = UDim2.new(0, 150, 0, 52)
+divLine.BackgroundColor3 = Color3.fromRGB(42, 16, 80)
+divLine.BorderSizePixel  = 0
+
+-- =====================================================
+-- CONTENT AREA
+-- =====================================================
+local ContentArea = Instance.new("Frame", Win)
+ContentArea.Size             = UDim2.new(1, -150, 1, -52)
+ContentArea.Position         = UDim2.new(0, 150, 0, 52)
+ContentArea.BackgroundTransparency = 1
+ContentArea.ClipsDescendants = true
+
+local Panels = {}
+local function NewPanel(tag)
+    local p = Instance.new("Frame", ContentArea)
+    p.Name             = tag
+    p.Size             = UDim2.new(1, 0, 1, 0)
+    p.BackgroundTransparency = 1
+    p.Visible          = false
+    Panels[tag]        = p
+    return p
+end
+
+-- ── UI HELPERS ─────────────────────────────────────
+local function MakeLabel(parent, yOff, txt, size, col)
+    local l = Instance.new("TextLabel", parent)
+    l.Size              = UDim2.new(1, -24, 0, 22)
+    l.Position          = UDim2.new(0, 12, 0, yOff)
+    l.BackgroundTransparency = 1
+    l.Text              = txt
+    l.TextSize          = size or 10
+    l.Font              = Enum.Font.GothamBold
+    l.TextColor3        = col or Color3.fromRGB(160, 110, 255)
+    l.TextXAlignment    = Enum.TextXAlignment.Left
+    l.TextWrapped       = true
+    return l
+end
+
+local function MakeSep(parent, yOff)
+    local s = Instance.new("Frame", parent)
+    s.Size             = UDim2.new(1, -24, 0, 1)
+    s.Position         = UDim2.new(0, 12, 0, yOff)
+    s.BackgroundColor3 = Color3.fromRGB(42, 16, 80)
+    s.BorderSizePixel  = 0
+end
+
+local function MakeBigBtn(parent, yOff, emoji, mainTxt, subTxt)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size             = UDim2.new(1, -24, 0, 60)
+    btn.Position         = UDim2.new(0, 12, 0, yOff)
+    btn.BackgroundColor3 = Color3.fromRGB(85, 28, 185)
+    btn.BorderSizePixel  = 0
+    btn.Text             = ""
+    btn.AutoButtonColor  = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 13)
+
+    local bg = Instance.new("UIGradient", btn)
+    bg.Color    = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(130, 48, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(68, 14, 165)),
+    })
+    bg.Rotation = 135
+
+    local bs = Instance.new("UIStroke", btn)
+    bs.Color        = Color3.fromRGB(165, 85, 255)
+    bs.Thickness    = 1.5
+    bs.Transparency = 0.32
+
+    local em = Instance.new("TextLabel", btn)
+    em.Size               = UDim2.new(0, 40, 1, 0)
+    em.Position           = UDim2.new(0, 12, 0, 0)
+    em.BackgroundTransparency = 1
+    em.Text               = emoji
+    em.TextSize           = 26
+    em.Font               = Enum.Font.GothamBold
+    em.TextColor3         = Color3.fromRGB(255, 215, 55)
+
+    local ml = Instance.new("TextLabel", btn)
+    ml.Size              = UDim2.new(1, -70, 0, 22)
+    ml.Position          = UDim2.new(0, 56, 0.5, -22)
+    ml.BackgroundTransparency = 1
+    ml.Text              = mainTxt
+    ml.TextSize          = 15
+    ml.Font              = Enum.Font.GothamBold
+    ml.TextColor3        = Color3.fromRGB(255, 255, 255)
+    ml.TextXAlignment    = Enum.TextXAlignment.Left
+
+    local sl = Instance.new("TextLabel", btn)
+    sl.Size              = UDim2.new(1, -70, 0, 14)
+    sl.Position          = UDim2.new(0, 56, 0.5, 4)
+    sl.BackgroundTransparency = 1
+    sl.Text              = subTxt
+    sl.TextSize          = 9
+    sl.Font              = Enum.Font.Gotham
+    sl.TextColor3        = Color3.fromRGB(195, 148, 255)
+    sl.TextXAlignment    = Enum.TextXAlignment.Left
+
+    return btn, bg, ml, sl, em
+end
+
+local function MakeComingSoon(parent, featureName)
+    local f = Instance.new("Frame", parent)
+    f.Size             = UDim2.new(1, -24, 0, 160)
+    f.Position         = UDim2.new(0, 12, 0, 70)
+    f.BackgroundColor3 = Color3.fromRGB(11, 7, 26)
+    f.BorderSizePixel  = 0
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 14)
+    local fs = Instance.new("UIStroke", f)
+    fs.Color = Color3.fromRGB(42, 16, 80); fs.Thickness = 1
+
+    local ic = Instance.new("TextLabel", f)
+    ic.Size               = UDim2.new(1, 0, 0, 55)
+    ic.Position           = UDim2.new(0, 0, 0, 20)
+    ic.BackgroundTransparency = 1
+    ic.Text               = "🔒"
+    ic.TextSize           = 36
+    ic.Font               = Enum.Font.GothamBold
+    ic.TextColor3         = Color3.fromRGB(80, 55, 130)
+    ic.TextXAlignment     = Enum.TextXAlignment.Center
+
+    local tl = Instance.new("TextLabel", f)
+    tl.Size               = UDim2.new(1, -24, 0, 20)
+    tl.Position           = UDim2.new(0, 12, 0, 80)
+    tl.BackgroundTransparency = 1
+    tl.Text               = "COMING SOON"
+    tl.TextSize           = 13
+    tl.Font               = Enum.Font.GothamBold
+    tl.TextColor3         = Color3.fromRGB(140, 90, 230)
+    tl.TextXAlignment     = Enum.TextXAlignment.Center
+
+    local sl = Instance.new("TextLabel", f)
+    sl.Size               = UDim2.new(1, -24, 0, 36)
+    sl.Position           = UDim2.new(0, 12, 0, 106)
+    sl.BackgroundTransparency = 1
+    sl.Text               = featureName .. " akan aktif setelah\ndata Simple Spy dikumpulkan"
+    sl.TextSize           = 9
+    sl.Font               = Enum.Font.Gotham
+    sl.TextColor3         = Color3.fromRGB(90, 66, 130)
+    sl.TextXAlignment     = Enum.TextXAlignment.Center
+    sl.TextWrapped        = true
+end
+
+-- =====================================================
+-- PANEL: MASS ATTACK  ✅ AKTIF
+-- =====================================================
+local PanelMass = NewPanel("mass")
+
+MakeLabel(PanelMass, 14, "⚔   MASS ATTACK", 11, Color3.fromRGB(160, 110, 255))
+MakeLabel(PanelMass, 34, "Kirim ClickEnemy ke semua musuh di map secara otomatis",
+    9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelMass, 60)
+
+-- status bar
+local MassStatBar = Instance.new("Frame", PanelMass)
+MassStatBar.Size             = UDim2.new(1, -24, 0, 36)
+MassStatBar.Position         = UDim2.new(0, 12, 0, 68)
+MassStatBar.BackgroundColor3 = Color3.fromRGB(11, 6, 26)
+MassStatBar.BorderSizePixel  = 0
+Instance.new("UICorner", MassStatBar).CornerRadius = UDim.new(0, 9)
+local msbs = Instance.new("UIStroke", MassStatBar)
+msbs.Color = Color3.fromRGB(42, 16, 80); msbs.Thickness = 1
+
+local MassStatDot = Instance.new("Frame", MassStatBar)
+MassStatDot.Size             = UDim2.new(0, 8, 0, 8)
+MassStatDot.Position         = UDim2.new(0, 10, 0.5, -4)
+MassStatDot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+MassStatDot.BorderSizePixel  = 0
+Instance.new("UICorner", MassStatDot).CornerRadius = UDim.new(1, 0)
+
+local MassStatTxt = Instance.new("TextLabel", MassStatBar)
+MassStatTxt.Size              = UDim2.new(1, -60, 1, 0)
+MassStatTxt.Position          = UDim2.new(0, 24, 0, 0)
+MassStatTxt.BackgroundTransparency = 1
+MassStatTxt.Text              = "STANDBY — Tekan START untuk mulai"
+MassStatTxt.TextSize          = 9
+MassStatTxt.Font              = Enum.Font.Gotham
+MassStatTxt.TextColor3        = Color3.fromRGB(108, 96, 138)
+MassStatTxt.TextXAlignment    = Enum.TextXAlignment.Left
+MassStatTxt.TextTruncate      = Enum.TextTruncate.AtEnd
+
+local MassKillTxt = Instance.new("TextLabel", MassStatBar)
+MassKillTxt.Size              = UDim2.new(0, 80, 1, 0)
+MassKillTxt.Position          = UDim2.new(1, -84, 0, 0)
+MassKillTxt.BackgroundTransparency = 1
+MassKillTxt.Text              = "0 kills | 0 items"
+MassKillTxt.TextSize          = 8
+MassKillTxt.Font              = Enum.Font.GothamBold
+MassKillTxt.TextColor3        = Color3.fromRGB(140, 90, 220)
+MassKillTxt.TextXAlignment    = Enum.TextXAlignment.Right
+
+-- enemy count live
+local EnemyCountBar = Instance.new("Frame", PanelMass)
+EnemyCountBar.Size             = UDim2.new(1, -24, 0, 32)
+EnemyCountBar.Position         = UDim2.new(0, 12, 0, 112)
+EnemyCountBar.BackgroundColor3 = Color3.fromRGB(9, 5, 20)
+EnemyCountBar.BorderSizePixel  = 0
+Instance.new("UICorner", EnemyCountBar).CornerRadius = UDim.new(0, 9)
+local ecbs = Instance.new("UIStroke", EnemyCountBar)
+ecbs.Color = Color3.fromRGB(42, 16, 80); ecbs.Thickness = 1
+
+local EnemyCountTxt = Instance.new("TextLabel", EnemyCountBar)
+EnemyCountTxt.Size              = UDim2.new(1, -16, 1, 0)
+EnemyCountTxt.Position          = UDim2.new(0, 8, 0, 0)
+EnemyCountTxt.BackgroundTransparency = 1
+EnemyCountTxt.Text              = "🔍 Scanning enemies..."
+EnemyCountTxt.TextSize          = 9
+EnemyCountTxt.Font              = Enum.Font.Gotham
+EnemyCountTxt.TextColor3        = Color3.fromRGB(130, 100, 190)
+EnemyCountTxt.TextXAlignment    = Enum.TextXAlignment.Left
+
+-- settings row: delay + loop toggle
+MakeSep(PanelMass, 154)
+MakeLabel(PanelMass, 162, "⚙   SETTINGS", 9, Color3.fromRGB(145, 100, 225))
+
+-- delay
+local DelayLbl = Instance.new("TextLabel", PanelMass)
+DelayLbl.Size              = UDim2.new(0, 180, 0, 22)
+DelayLbl.Position          = UDim2.new(0, 12, 0, 184)
+DelayLbl.BackgroundTransparency = 1
+DelayLbl.Text              = "Delay attack per hit:"
+DelayLbl.TextSize          = 9
+DelayLbl.Font              = Enum.Font.Gotham
+DelayLbl.TextColor3        = Color3.fromRGB(130, 100, 175)
+DelayLbl.TextXAlignment    = Enum.TextXAlignment.Left
+
+local delayOptions = {0.05, 0.1, 0.2, 0.3, 0.5}
+local delayLabels  = {"0.05s","0.1s","0.2s","0.3s","0.5s"}
+local delaySelIdx  = 2
+MassAttack.spamDelay = delayOptions[delaySelIdx]
+local delayBtnRefs = {}
+
+local delayRow = Instance.new("Frame", PanelMass)
+delayRow.Size             = UDim2.new(1, -24, 0, 24)
+delayRow.Position         = UDim2.new(0, 12, 0, 210)
+delayRow.BackgroundTransparency = 1
+local dL = Instance.new("UIListLayout", delayRow)
+dL.FillDirection = Enum.FillDirection.Horizontal
+dL.Padding       = UDim.new(0, 4)
+
+for di, sec in ipairs(delayOptions) do
+    local db = Instance.new("TextButton", delayRow)
+    db.Size             = UDim2.new(0, 54, 1, 0)
+    db.BackgroundColor3 = di==delaySelIdx and Color3.fromRGB(78,26,172) or Color3.fromRGB(16,9,34)
+    db.BorderSizePixel  = 0
+    db.Text             = delayLabels[di]
+    db.TextSize         = 8
+    db.Font             = Enum.Font.GothamBold
+    db.TextColor3       = di==delaySelIdx and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,160)
+    db.AutoButtonColor  = false
+    Instance.new("UICorner", db).CornerRadius = UDim.new(0, 7)
+    delayBtnRefs[di] = db
+    db.MouseButton1Click:Connect(function()
+        delaySelIdx          = di
+        MassAttack.spamDelay = sec
+        for j, ref in ipairs(delayBtnRefs) do
+            TweenService:Create(ref, TweenInfo.new(0.14), {
+                BackgroundColor3 = j==di and Color3.fromRGB(78,26,172) or Color3.fromRGB(16,9,34)
+            }):Play()
+            ref.TextColor3 = j==di and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,160)
+        end
+    end)
+end
+
+-- loop toggle
+local LoopLbl = Instance.new("TextLabel", PanelMass)
+LoopLbl.Size              = UDim2.new(1, -80, 0, 24)
+LoopLbl.Position          = UDim2.new(0, 12, 0, 244)
+LoopLbl.BackgroundTransparency = 1
+LoopLbl.Text              = "🔁  Loop terus (respawn musuh)"
+LoopLbl.TextSize          = 9
+LoopLbl.Font              = Enum.Font.Gotham
+LoopLbl.TextColor3        = Color3.fromRGB(140, 108, 195)
+LoopLbl.TextXAlignment    = Enum.TextXAlignment.Left
+
+local LoopPill = Instance.new("TextButton", PanelMass)
+LoopPill.Size             = UDim2.new(0, 44, 0, 22)
+LoopPill.Position         = UDim2.new(1, -56, 0, 245)
+LoopPill.BackgroundColor3 = Color3.fromRGB(72, 28, 158)
+LoopPill.BorderSizePixel  = 0
+LoopPill.Text             = ""
+LoopPill.AutoButtonColor  = false
+Instance.new("UICorner", LoopPill).CornerRadius = UDim.new(1, 0)
+
+local LoopKnob = Instance.new("Frame", LoopPill)
+LoopKnob.Size             = UDim2.new(0, 16, 0, 16)
+LoopKnob.Position         = UDim2.new(1, -19, 0.5, -8)
+LoopKnob.BackgroundColor3 = Color3.fromRGB(165, 88, 255)
+LoopKnob.BorderSizePixel  = 0
+Instance.new("UICorner", LoopKnob).CornerRadius = UDim.new(1, 0)
+
+LoopPill.MouseButton1Click:Connect(function()
+    MassAttack.looping = not MassAttack.looping
+    local on = MassAttack.looping
+    TweenService:Create(LoopPill, TweenInfo.new(0.18), {
+        BackgroundColor3 = on and Color3.fromRGB(72,28,158) or Color3.fromRGB(28,14,50)
+    }):Play()
+    TweenService:Create(LoopKnob, TweenInfo.new(0.18), {
+        Position         = on and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8),
+        BackgroundColor3 = on and Color3.fromRGB(165,88,255) or Color3.fromRGB(80,55,110),
+    }):Play()
+end)
+
+-- auto collect toggle
+local CollectLbl = Instance.new("TextLabel", PanelMass)
+CollectLbl.Size              = UDim2.new(1, -80, 0, 24)
+CollectLbl.Position          = UDim2.new(0, 12, 0, 274)
+CollectLbl.BackgroundTransparency = 1
+CollectLbl.Text              = "💎  Auto Collect Gold & Item Drop"
+CollectLbl.TextSize          = 9
+CollectLbl.Font              = Enum.Font.Gotham
+CollectLbl.TextColor3        = Color3.fromRGB(140, 108, 195)
+CollectLbl.TextXAlignment    = Enum.TextXAlignment.Left
+
+local CollectPill = Instance.new("TextButton", PanelMass)
+CollectPill.Size             = UDim2.new(0, 44, 0, 22)
+CollectPill.Position         = UDim2.new(1, -56, 0, 275)
+CollectPill.BackgroundColor3 = Color3.fromRGB(72, 28, 158)
+CollectPill.BorderSizePixel  = 0
+CollectPill.Text             = ""
+CollectPill.AutoButtonColor  = false
+Instance.new("UICorner", CollectPill).CornerRadius = UDim.new(1, 0)
+
+local CollectKnob = Instance.new("Frame", CollectPill)
+CollectKnob.Size             = UDim2.new(0, 16, 0, 16)
+CollectKnob.Position         = UDim2.new(1, -19, 0.5, -8)
+CollectKnob.BackgroundColor3 = Color3.fromRGB(255, 200, 55)
+CollectKnob.BorderSizePixel  = 0
+Instance.new("UICorner", CollectKnob).CornerRadius = UDim.new(1, 0)
+
+CollectPill.MouseButton1Click:Connect(function()
+    MassAttack.autoCollect = not MassAttack.autoCollect
+    local on = MassAttack.autoCollect
+    TweenService:Create(CollectPill, TweenInfo.new(0.18), {
+        BackgroundColor3 = on and Color3.fromRGB(72,28,158) or Color3.fromRGB(28,14,50)
+    }):Play()
+    TweenService:Create(CollectKnob, TweenInfo.new(0.18), {
+        Position         = on and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8),
+        BackgroundColor3 = on and Color3.fromRGB(255,200,55) or Color3.fromRGB(80,55,110),
+    }):Play()
+end)
+
+MakeSep(PanelMass, 308)
+
+-- START / STOP button
+local MassBtn, massBtnGrad, MassBtnLbl, MassBtnSub, MassBtnEmoji =
+    MakeBigBtn(PanelMass, 316, "⚔", "START MASS ATTACK", "CLICK ENEMY + AUTO COLLECT")
+
+local massRunning = false
+
+local function SetMassUI(on)
+    if on then
+        massBtnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(195,42,42)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(135,16,16)),
+        })
+        MassBtnEmoji.Text  = "🛑"
+        MassBtnLbl.Text    = "STOP MASS ATTACK"
+        MassBtnSub.Text    = "KLIK UNTUK BERHENTI"
+        MassStatDot.BackgroundColor3 = Color3.fromRGB(52, 248, 95)
+        MassStatTxt.TextColor3       = Color3.fromRGB(52, 248, 95)
+    else
+        massBtnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(130,48,255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(68,14,165)),
+        })
+        MassBtnEmoji.Text  = "⚔"
+        MassBtnLbl.Text    = "START MASS ATTACK"
+        MassBtnSub.Text    = "CLICK ENEMY → KILL + AUTO COLLECT LOOP"
+        MassStatDot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        MassStatTxt.TextColor3       = Color3.fromRGB(108, 96, 138)
+        MassStatTxt.Text             = "STANDBY — Tekan START untuk mulai"
+    end
+end
+
+MassBtn.MouseButton1Click:Connect(function()
+    TweenService:Create(MassBtn, TweenInfo.new(0.07), {Size=UDim2.new(1,-28,0,56)}):Play()
+    task.wait(0.07)
+    TweenService:Create(MassBtn, TweenInfo.new(0.10), {Size=UDim2.new(1,-24,0,60)}):Play()
+
+    if massRunning then
+        StopMassAttack()
+        massRunning = false
+        SetMassUI(false)
+    else
+        massRunning = true
+        SetMassUI(true)
+        StartMassAttack(
+            function(msg, active)  -- onStatus
+                MassStatTxt.Text = msg
+                MassKillTxt.Text = MassAttack.killed .. " kills"
+                if not active then
+                    MassStatDot.BackgroundColor3 = Color3.fromRGB(255, 180, 50)
+                end
+            end,
+            function(on)           -- onToggle (dipanggil saat loop selesai)
+                massRunning = false
+                SetMassUI(false)
+            end
+        )
+    end
+end)
+
+-- live enemy scan update
+task.spawn(function()
+    while ScreenGui.Parent do
+        local enemies = GetEnemies()
+        local n = #enemies
+        if n > 0 then
+            EnemyCountTxt.Text      = "👾 " .. n .. " musuh ditemukan di Workspace.Enemys"
+            EnemyCountTxt.TextColor3= Color3.fromRGB(80, 230, 120)
+        else
+            EnemyCountTxt.Text      = "⚠ Tidak ada musuh — masuk map dulu"
+            EnemyCountTxt.TextColor3= Color3.fromRGB(220, 130, 60)
+        end
+        MassKillTxt.Text = MassAttack.killed.." kills | "..MassAttack.collected.." items"
+        task.wait(1.5)
+    end
+end)
+
+-- =====================================================
+-- PANEL: MAP ROTATION  ✅ AKTIF
+-- =====================================================
+local PanelMap = NewPanel("map")
+
+MakeLabel(PanelMap, 14, "🗺   MAP ROTATION", 11, Color3.fromRGB(160, 110, 255))
+MakeLabel(PanelMap, 34, "Pilih map → Mass Attack otomatis di setiap map yang dipilih",
+    9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelMap, 60)
+
+local MapStatBar = Instance.new("Frame", PanelMap)
+MapStatBar.Size             = UDim2.new(1, -24, 0, 34)
+MapStatBar.Position         = UDim2.new(0, 12, 0, 68)
+MapStatBar.BackgroundColor3 = Color3.fromRGB(11, 6, 26)
+MapStatBar.BorderSizePixel  = 0
+Instance.new("UICorner", MapStatBar).CornerRadius = UDim.new(0, 9)
+local msbS2 = Instance.new("UIStroke", MapStatBar)
+msbS2.Color = Color3.fromRGB(42, 16, 80); msbS2.Thickness = 1
+
+local MapStatDot = Instance.new("Frame", MapStatBar)
+MapStatDot.Size             = UDim2.new(0, 8, 0, 8)
+MapStatDot.Position         = UDim2.new(0, 10, 0.5, -4)
+MapStatDot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+MapStatDot.BorderSizePixel  = 0
+Instance.new("UICorner", MapStatDot).CornerRadius = UDim.new(1, 0)
+
+local MapStatTxt = Instance.new("TextLabel", MapStatBar)
+MapStatTxt.Size              = UDim2.new(1, -24, 1, 0)
+MapStatTxt.Position          = UDim2.new(0, 24, 0, 0)
+MapStatTxt.BackgroundTransparency = 1
+MapStatTxt.Text              = "STANDBY — Pilih map lalu tekan GO"
+MapStatTxt.TextSize          = 9
+MapStatTxt.Font              = Enum.Font.Gotham
+MapStatTxt.TextColor3        = Color3.fromRGB(108, 96, 138)
+MapStatTxt.TextXAlignment    = Enum.TextXAlignment.Left
+MapStatTxt.TextTruncate      = Enum.TextTruncate.AtEnd
+
+-- select all / clear / count
+local function SmallBtn(parent, xOff, yOff, w, txt, col)
+    local b = Instance.new("TextButton", parent)
+    b.Size             = UDim2.new(0, w, 0, 20)
+    b.Position         = UDim2.new(0, xOff, 0, yOff)
+    b.BackgroundColor3 = col or Color3.fromRGB(46, 20, 90)
+    b.BorderSizePixel  = 0
+    b.Text             = txt
+    b.TextSize         = 8
+    b.Font             = Enum.Font.GothamBold
+    b.TextColor3       = Color3.fromRGB(185, 145, 255)
+    b.AutoButtonColor  = false
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+local SABtn = SmallBtn(PanelMap, 12, 110, 76, "Select All", Color3.fromRGB(40, 18, 88))
+local CLBtn = SmallBtn(PanelMap, 94, 110, 52, "Clear",      Color3.fromRGB(26, 10, 48))
+
+local MapCntLbl = Instance.new("TextLabel", PanelMap)
+MapCntLbl.Size              = UDim2.new(0, 80, 0, 20)
+MapCntLbl.Position          = UDim2.new(1, -92, 0, 110)
+MapCntLbl.BackgroundTransparency = 1
+MapCntLbl.Text              = "0 dipilih"
+MapCntLbl.TextSize          = 8
+MapCntLbl.Font              = Enum.Font.Gotham
+MapCntLbl.TextColor3        = Color3.fromRGB(110, 82, 162)
+MapCntLbl.TextXAlignment    = Enum.TextXAlignment.Right
+
+-- map scroll 2-column
+local MapScroll = Instance.new("ScrollingFrame", PanelMap)
+MapScroll.Size                = UDim2.new(1, -24, 0, 270)
+MapScroll.Position            = UDim2.new(0, 12, 0, 136)
+MapScroll.BackgroundColor3    = Color3.fromRGB(10, 5, 22)
+MapScroll.BorderSizePixel     = 0
+MapScroll.ScrollBarThickness  = 3
+MapScroll.ScrollBarImageColor3= Color3.fromRGB(90, 38, 185)
+MapScroll.CanvasSize          = UDim2.new(0, 0, 0, 0)
+MapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Instance.new("UICorner", MapScroll).CornerRadius = UDim.new(0, 11)
+local msS2 = Instance.new("UIStroke", MapScroll)
+msS2.Color = Color3.fromRGB(42, 16, 80); msS2.Thickness = 1
+
+local MapGrid = Instance.new("UIGridLayout", MapScroll)
+MapGrid.CellSize    = UDim2.new(0.5, -8, 0, 34)
+MapGrid.CellPadding = UDim2.new(0, 6, 0, 5)
+MapGrid.SortOrder   = Enum.SortOrder.LayoutOrder
+
+local mgPad = Instance.new("UIPadding", MapScroll)
+mgPad.PaddingTop    = UDim.new(0, 6)
+mgPad.PaddingLeft   = UDim.new(0, 6)
+mgPad.PaddingRight  = UDim.new(0, 6)
+mgPad.PaddingBottom = UDim.new(0, 6)
+
+local MapBtnRefs = {}
+local function UpdateMapCount()
+    local n = 0
+    for i = 1, #MAPS do if MapRotation.selected[i] then n = n+1 end end
+    MapCntLbl.Text = n .. " dipilih"
+end
+local function SetMapSel(i, on)
+    MapRotation.selected[i] = on or nil
+    local r = MapBtnRefs[i]
+    if not r then return end
+    TweenService:Create(r.btn, TweenInfo.new(0.14), {
+        BackgroundColor3 = on and Color3.fromRGB(78,24,172) or Color3.fromRGB(14,7,30)
+    }):Play()
+    r.stroke.Color   = on and Color3.fromRGB(140,62,245) or Color3.fromRGB(34,12,58)
+    r.chk.Text       = on and "✓" or ""
+    r.lbl.TextColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(125,95,178)
+    UpdateMapCount()
+end
+
+local icons = {"🗡","⚔","🏹","🔱","💀","🌑","🔥","⚡","🌀","❄","🌊","🪄","👁","🐉","⭐","💫","🌙","☄"}
+for i, mapData in ipairs(MAPS) do
+    local btn = Instance.new("TextButton", MapScroll)
+    btn.LayoutOrder      = i
+    btn.BackgroundColor3 = Color3.fromRGB(14, 7, 30)
+    btn.BorderSizePixel  = 0
+    btn.Text             = ""
+    btn.AutoButtonColor  = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 9)
+
+    local stk = Instance.new("UIStroke", btn)
+    stk.Color = Color3.fromRGB(34, 12, 58); stk.Thickness = 1
+
+    local ic = Instance.new("TextLabel", btn)
+    ic.Size = UDim2.new(0, 22, 1, 0); ic.Position = UDim2.new(0, 6, 0, 0)
+    ic.BackgroundTransparency = 1
+    ic.Text = icons[i] or "🗡"; ic.TextSize = 14
+    ic.Font = Enum.Font.GothamBold; ic.TextColor3 = Color3.fromRGB(255, 200, 55)
+
+    local lbl = Instance.new("TextLabel", btn)
+    lbl.Size = UDim2.new(1,-44,1,0); lbl.Position = UDim2.new(0,30,0,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = mapData.name; lbl.TextSize = 10
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextColor3 = Color3.fromRGB(125,95,178)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local chk = Instance.new("TextLabel", btn)
+    chk.Size = UDim2.new(0,18,1,0); chk.Position = UDim2.new(1,-20,0,0)
+    chk.BackgroundTransparency = 1
+    chk.Text = ""; chk.TextSize = 12
+    chk.Font = Enum.Font.GothamBold
+    chk.TextColor3 = Color3.fromRGB(62, 245, 110)
+
+    MapBtnRefs[i] = {btn=btn, stroke=stk, chk=chk, lbl=lbl}
+    btn.MouseButton1Click:Connect(function()
+        SetMapSel(i, not MapRotation.selected[i])
+    end)
+end
+
+SABtn.MouseButton1Click:Connect(function() for i=1,#MAPS do SetMapSel(i,true) end end)
+CLBtn.MouseButton1Click:Connect(function() for i=1,#MAPS do SetMapSel(i,false) end end)
+
+-- delay row
+MakeSep(PanelMap, 416)
+MakeLabel(PanelMap, 424, "⏱   DELAY PER MAP", 9, Color3.fromRGB(140, 96, 218))
+
+local mapDelayOpts = {3,5,8,10,15,20,30}
+local mapDelayIdx  = 2
+MapRotation.delay  = mapDelayOpts[mapDelayIdx]
+local mapDelayRefs = {}
+
+local mdRow = Instance.new("Frame", PanelMap)
+mdRow.Size = UDim2.new(1,-24,0,26); mdRow.Position = UDim2.new(0,12,0,448)
+mdRow.BackgroundTransparency = 1
+local mdL = Instance.new("UIListLayout", mdRow)
+mdL.FillDirection = Enum.FillDirection.Horizontal; mdL.Padding = UDim.new(0,4)
+
+for di, sec in ipairs(mapDelayOpts) do
+    local db = Instance.new("TextButton", mdRow)
+    db.Size = UDim2.new(0,40,1,0)
+    db.BackgroundColor3 = di==mapDelayIdx and Color3.fromRGB(75,24,165) or Color3.fromRGB(14,8,30)
+    db.BorderSizePixel = 0; db.Text = sec.."s"; db.TextSize = 9
+    db.Font = Enum.Font.GothamBold
+    db.TextColor3 = di==mapDelayIdx and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,165)
+    db.AutoButtonColor = false
+    Instance.new("UICorner", db).CornerRadius = UDim.new(0,7)
+    mapDelayRefs[di] = db
+    db.MouseButton1Click:Connect(function()
+        mapDelayIdx = di; MapRotation.delay = sec
+        for j, ref in ipairs(mapDelayRefs) do
+            TweenService:Create(ref, TweenInfo.new(0.14), {
+                BackgroundColor3 = j==di and Color3.fromRGB(75,24,165) or Color3.fromRGB(14,8,30)
+            }):Play()
+            ref.TextColor3 = j==di and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,165)
+        end
+    end)
+end
+
+MakeSep(PanelMap, 482)
+
+local GoBtn, goBtnGrad, GoBtnLbl, GoBtnSub, GoBtnEmoji =
+    MakeBigBtn(PanelMap, 490, "🚀", "START ROTATION + ATTACK", "TELEPORT → KILL → COLLECT → NEXT MAP")
+
+local mapLoopRunning = false
+local function SetMapGoUI(on)
+    if on then
+        goBtnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(190,40,40)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(130,14,14)),
+        })
+        GoBtnEmoji.Text = "🛑"; GoBtnLbl.Text = "STOP ROTATION + ATTACK"
+        GoBtnSub.Text   = "KLIK UNTUK BERHENTI"
+        MapStatDot.BackgroundColor3 = Color3.fromRGB(52,248,95)
+        MapStatTxt.TextColor3       = Color3.fromRGB(52,248,95)
+    else
+        goBtnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(130,48,255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(68,14,165)),
+        })
+        GoBtnEmoji.Text = "🚀"; GoBtnLbl.Text = "MULAI MAP ROTATION"
+        GoBtnSub.Text   = "AUTO PINDAH MAP BERURUTAN"
+        MapStatDot.BackgroundColor3 = Color3.fromRGB(80,80,80)
+        MapStatTxt.TextColor3       = Color3.fromRGB(108,96,138)
+        MapStatTxt.Text             = "STANDBY — Pilih map lalu tekan GO"
+    end
+end
+
+GoBtn.MouseButton1Click:Connect(function()
+    if not mapLoopRunning then
+        local has = false
+        for i=1,#MAPS do if MapRotation.selected[i] then has=true; break end end
+        if not has then
+            MapStatTxt.Text      = "⚠ Pilih minimal 1 map dulu!"
+            MapStatTxt.TextColor3= Color3.fromRGB(255,145,50)
+            task.delay(2, function()
+                if not mapLoopRunning then
+                    MapStatTxt.Text      = "STANDBY — Pilih map lalu tekan GO"
+                    MapStatTxt.TextColor3= Color3.fromRGB(108,96,138)
+                end
+            end)
+            return
+        end
+    end
+    TweenService:Create(GoBtn, TweenInfo.new(0.07), {Size=UDim2.new(1,-28,0,56)}):Play()
+    task.wait(0.07)
+    TweenService:Create(GoBtn, TweenInfo.new(0.10), {Size=UDim2.new(1,-24,0,60)}):Play()
+
+    if mapLoopRunning then
+        -- stop semua
+        StopMassAttack()
+        mapLoopRunning = false
+        massRunning    = false
+        SetMapGoUI(false)
+        SetMassUI(false)
+    else
+        mapLoopRunning = true
+        massRunning    = true
+        SetMapGoUI(true)
+        SetMassUI(true)
+
+        -- Bangun list index map yang dipilih (berurutan)
+        local selectedIdxList = {}
+        for i = 1, #MAPS do
+            if MapRotation.selected[i] then
+                table.insert(selectedIdxList, i)
+            end
+        end
+        MapRotation.selected = {}
+        for _, idx in ipairs(selectedIdxList) do
+            table.insert(MapRotation.selected, idx)
+        end
+
+        StartMassAttack(
+            function(msg, active)
+                MapStatTxt.Text  = msg
+                MassStatTxt.Text = msg
+                MassKillTxt.Text = MassAttack.killed.." kills | "..MassAttack.collected.." items"
+                if not active then
+                    MapStatDot.BackgroundColor3 = Color3.fromRGB(255,180,50)
+                    MassStatDot.BackgroundColor3= Color3.fromRGB(255,180,50)
+                end
+            end,
+            function(on)
+                mapLoopRunning = false
+                massRunning    = false
+                SetMapGoUI(false)
+                SetMassUI(false)
+            end
+        )
+    end
+end)
+
+-- =====================================================
+-- PANEL: AUTO RAID / ROLL (Coming Soon)
+-- =====================================================
+local PanelRaid = NewPanel("raid")
+MakeLabel(PanelRaid, 14, "⚡   AUTO RAID", 11, Color3.fromRGB(160, 110, 255))
+MakeLabel(PanelRaid, 34, "Auto masuk dan clear raid dungeon otomatis", 9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelRaid, 60)
+MakeComingSoon(PanelRaid, "Auto Raid")
+
+local PanelEquip = NewPanel("equip")
+MakeLabel(PanelEquip, 14, "🎲   AUTO ROLL EQUIPMENT", 11, Color3.fromRGB(160, 110, 255))
+MakeLabel(PanelEquip, 34, "Auto roll equipment hero hingga dapat yang diinginkan", 9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelEquip, 60)
+MakeComingSoon(PanelEquip, "Auto Roll Equipment")
+
+local PanelSword = NewPanel("sword")
+MakeLabel(PanelSword, 14, "🗡   AUTO ROLL SWORD", 11, Color3.fromRGB(160, 110, 255))
+MakeLabel(PanelSword, 34, "Auto roll sword hingga mendapat stat terbaik", 9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelSword, 60)
+MakeComingSoon(PanelSword, "Auto Roll Sword")
+
+local PanelAbility = NewPanel("ability")
+MakeLabel(PanelAbility, 14, "✨   AUTO ROLL HERO ABILITY", 11, Color3.fromRGB(160, 110, 255))
+MakeLabel(PanelAbility, 34, "Auto roll ability hero hingga mendapat yang terbaik", 9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelAbility, 60)
+MakeComingSoon(PanelAbility, "Auto Roll Hero Ability")
+
+-- =====================================================
+-- SIDEBAR NAV
+-- =====================================================
+local NAV_ITEMS = {
+    { icon="⚔",  label="Mass Attack",    tag="mass",    active=true  },
+    { icon="🗺",  label="Map Rotation",  tag="map"                   },
+    { icon="⚡",  label="Auto Raid",     tag="raid"                  },
+    { icon="🎲",  label="Roll Equip",    tag="equip"                 },
+    { icon="🗡",  label="Roll Sword",    tag="sword"                 },
+    { icon="✨",  label="Roll Ability",  tag="ability"               },
+}
+
+local NavBtnRefs = {}
+local ActiveTag  = "mass"
+
+local function SwitchTab(tag)
+    ActiveTag = tag
+    for _, p in pairs(Panels) do p.Visible = false end
+    if Panels[tag] then Panels[tag].Visible = true end
+    for _, ref in pairs(NavBtnRefs) do
+        local on = (ref.tag == tag)
+        TweenService:Create(ref.bg, TweenInfo.new(0.16), {
+            BackgroundColor3 = on and Color3.fromRGB(72,24,165) or Color3.fromRGB(10,6,24)
+        }):Play()
+        ref.ibg.BackgroundColor3 = on and Color3.fromRGB(105,42,228) or Color3.fromRGB(20,10,44)
+        ref.lbl.TextColor3       = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(110,84,158)
+        ref.stroke.Transparency  = on and 0.5 or 1
+    end
+end
+
+for idx, item in ipairs(NAV_ITEMS) do
+    local yOff = 12 + (idx-1)*58
+
+    local bg = Instance.new("TextButton", Sidebar)
+    bg.Size             = UDim2.new(1, -16, 0, 52)
+    bg.Position         = UDim2.new(0, 8, 0, yOff)
+    bg.BackgroundColor3 = Color3.fromRGB(10, 6, 24)
+    bg.BorderSizePixel  = 0
+    bg.Text             = ""
+    bg.AutoButtonColor  = false
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 11)
+
+    local bgS = Instance.new("UIStroke", bg)
+    bgS.Color = Color3.fromRGB(115,48,255); bgS.Thickness = 1.2; bgS.Transparency = 1
+
+    local ibg = Instance.new("Frame", bg)
+    ibg.Size             = UDim2.new(0, 30, 0, 30)
+    ibg.Position         = UDim2.new(0.5, -15, 0, 4)
+    ibg.BackgroundColor3 = Color3.fromRGB(20, 10, 44)
+    ibg.BorderSizePixel  = 0
+    Instance.new("UICorner", ibg).CornerRadius = UDim.new(0, 8)
+
+    local ic = Instance.new("TextLabel", ibg)
+    ic.Size = UDim2.new(1,0,1,0); ic.BackgroundTransparency = 1
+    ic.Text = item.icon; ic.TextSize = 15
+    ic.Font = Enum.Font.GothamBold
+    ic.TextColor3 = Color3.fromRGB(255, 210, 55)
+    ic.TextXAlignment = Enum.TextXAlignment.Center
+
+    local lbl = Instance.new("TextLabel", bg)
+    lbl.Size = UDim2.new(1,-6,0,14); lbl.Position = UDim2.new(0,3,0,36)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = item.label; lbl.TextSize = 7
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextColor3 = Color3.fromRGB(110, 84, 158)
+    lbl.TextXAlignment = Enum.TextXAlignment.Center
+    lbl.TextWrapped = true
+
+    NavBtnRefs[idx] = {tag=item.tag, bg=bg, ibg=ibg, lbl=lbl, stroke=bgS}
+
+    bg.MouseButton1Click:Connect(function()
+        SwitchTab(item.tag)
+        TweenService:Create(bg, TweenInfo.new(0.06), {Size=UDim2.new(1,-20,0,48)}):Play()
+        task.wait(0.06)
+        TweenService:Create(bg, TweenInfo.new(0.10), {Size=UDim2.new(1,-16,0,52)}):Play()
+    end)
+end
+
+SwitchTab("mass")
+
+-- =====================================================
+-- DRAG
+-- =====================================================
+do
+    local drag, ds, dp = false, nil, nil
+    TBar.InputBegan:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1
+        or i.UserInputType==Enum.UserInputType.Touch then
+            drag=true; ds=i.Position; dp=Win.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if drag and (i.UserInputType==Enum.UserInputType.MouseMovement
+                  or i.UserInputType==Enum.UserInputType.Touch) then
+            local d = i.Position-ds
+            Win.Position = UDim2.new(dp.X.Scale,dp.X.Offset+d.X,
+                                      dp.Y.Scale,dp.Y.Offset+d.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1
+        or i.UserInputType==Enum.UserInputType.Touch then drag=false end
+    end)
+end
+
+-- =====================================================
+-- MINIMIZE
+-- =====================================================
+local minimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    TweenService:Create(Win, TweenInfo.new(0.28, Enum.EasingStyle.Quart), {
+        Size = minimized and UDim2.new(0,560,0,52) or UDim2.new(0,560,0,630)
+    }):Play()
+    MinBtn.Text = minimized and "□" or "—"
+end)
+
+print("[ ASH Hub v6.0 ] Loaded ✓")
+print("[ MASS ATTACK ] Loop terus, refresh enemy tiap iterasi + cek respawn")
+print("[ MAP ROTATION ] Terintegrasi — teleport → kill → collect → next map")
+print("[ DESTROYER   ] Auto GetDrawHeroId + ExtraReward setiap musuh mati")
