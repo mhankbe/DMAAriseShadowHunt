@@ -1,6 +1,7 @@
 -- =====================================================
---   FLA HUB | ARISE SHADOW HUNT
---   UI with Floating Button + Sidebar Navigation
+--   ARISE SHADOW HUNT | FARMING HUB
+--   Template UI — Responsive + Draggable
+--   PC / Tablet / Smartphone compatible
 -- =====================================================
 
 local Players          = game:GetService("Players")
@@ -9,181 +10,81 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer      = Players.LocalPlayer
 
 -- =====================================================
--- CLEANUP OLD GUI
--- =====================================================
-pcall(function()
-    if LocalPlayer.PlayerGui:FindFirstChild("FLA_Hub") then
-        LocalPlayer.PlayerGui.FLA_Hub:Destroy()
-    end
-end)
-pcall(function()
-    if game:GetService("CoreGui"):FindFirstChild("FLA_Hub") then
-        game:GetService("CoreGui").FLA_Hub:Destroy()
-    end
-end)
-
--- =====================================================
--- SCREEN SIZE
+-- SCREEN SIZE — tunggu sampai valid
 -- =====================================================
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
 local SW, SH
 local waited = 0
 repeat
-    task.wait(0.05); waited = waited + 0.05
+    task.wait(0.05)
+    waited = waited + 0.05
     SW = PlayerGui.AbsoluteSize.X
     SH = PlayerGui.AbsoluteSize.Y
 until (SW > 0 and SH > 0) or waited > 3
+
 if SW == 0 or SH == 0 then
     local vp = workspace.CurrentCamera.ViewportSize
     SW, SH = vp.X, vp.Y
 end
 
--- GUI 60% lebar layar, rasio 560:500
-local GUI_W = math.floor(SW * 0.60)
-local GUI_H = math.floor(GUI_W * (500 / 560))
+-- GUI = 50% lebar layar, rasio 560:630
+local GUI_W = math.floor(SW * 0.50)
+local GUI_H = math.floor(GUI_W * (630 / 560))
+
+-- Jika tinggi melebihi 85% layar, scale dari tinggi
 if GUI_H > SH * 0.85 then
     GUI_H = math.floor(SH * 0.85)
-    GUI_W = math.floor(GUI_H * (560 / 500))
+    GUI_W = math.floor(GUI_H * (560 / 630))
 end
+
+-- Scale factor (1.0 = desain asli 560px)
 local S = GUI_W / 560
 local function sc(v) return math.round(v * S) end
 local function fs(v) return math.max(6, sc(v)) end
+
+print("[ ASH Hub ] Screen: "..SW.."x"..SH)
+print("[ ASH Hub ] GUI: "..GUI_W.."x"..GUI_H.." | Scale: "..math.round(S*100).."%")
+
+-- =====================================================
+-- CLEANUP GUI LAMA
+-- =====================================================
+pcall(function()
+    if LocalPlayer.PlayerGui:FindFirstChild("ASH_Hub") then
+        LocalPlayer.PlayerGui.ASH_Hub:Destroy()
+    end
+end)
+pcall(function()
+    if game:GetService("CoreGui"):FindFirstChild("ASH_Hub") then
+        game:GetService("CoreGui").ASH_Hub:Destroy()
+    end
+end)
 
 -- =====================================================
 -- SCREEN GUI
 -- =====================================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name           = "FLA_Hub"
+ScreenGui.Name           = "ASH_Hub"
 ScreenGui.ResetOnSpawn   = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder   = 999
 
-local guiParented = false
+-- Support executor maupun LocalScript biasa
+local parented = false
 pcall(function()
     if syn and syn.protect_gui then
         syn.protect_gui(ScreenGui)
         ScreenGui.Parent = LocalPlayer.PlayerGui
-        guiParented = true
+        parented = true
     end
 end)
-if not guiParented then
-    pcall(function() ScreenGui.Parent = game:GetService("CoreGui"); guiParented = true end)
+if not parented then
+    pcall(function()
+        ScreenGui.Parent = game:GetService("CoreGui")
+        parented = true
+    end)
 end
-if not guiParented then ScreenGui.Parent = LocalPlayer.PlayerGui end
-
--- =====================================================
--- FLOATING BUTTON
--- =====================================================
-local FB_SIZE = sc(54)
-local FB_X    = sc(20)
-local FB_Y    = SH - sc(120)
-
-local FloatBtn = Instance.new("TextButton", ScreenGui)
-FloatBtn.Name             = "FloatBtn"
-FloatBtn.Size             = UDim2.new(0, FB_SIZE, 0, FB_SIZE)
-FloatBtn.Position         = UDim2.new(0, FB_X, 0, FB_Y)
-FloatBtn.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
-FloatBtn.BorderSizePixel  = 0
-FloatBtn.Text             = ""
-FloatBtn.AutoButtonColor  = false
-FloatBtn.ZIndex           = 20
-Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
-
--- Drop shadow
-local fbShadow = Instance.new("ImageLabel", FloatBtn)
-fbShadow.Size              = UDim2.new(1, sc(14), 1, sc(14))
-fbShadow.Position          = UDim2.new(0, -sc(7), 0, sc(4))
-fbShadow.BackgroundTransparency = 1
-fbShadow.Image             = "rbxassetid://5554236805"
-fbShadow.ImageColor3       = Color3.fromRGB(180, 10, 10)
-fbShadow.ImageTransparency = 0.55
-fbShadow.ZIndex            = 19
-fbShadow.ScaleType         = Enum.ScaleType.Slice
-fbShadow.SliceCenter       = Rect.new(23, 23, 277, 277)
-
--- Gradient
-local fbGrad = Instance.new("UIGradient", FloatBtn)
-fbGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0,   Color3.fromRGB(255, 65, 65)),
-    ColorSequenceKeypoint.new(1,   Color3.fromRGB(160, 15, 15)),
-})
-fbGrad.Rotation = 135
-
--- Stroke
-local fbStroke = Instance.new("UIStroke", FloatBtn)
-fbStroke.Color        = Color3.fromRGB(255, 120, 120)
-fbStroke.Thickness    = sc(2)
-fbStroke.Transparency = 0.4
-
--- Label FLA
-local fbLabel = Instance.new("TextLabel", FloatBtn)
-fbLabel.Size              = UDim2.new(1, 0, 0, math.round(FB_SIZE * 0.48))
-fbLabel.Position          = UDim2.new(0, 0, 0, math.round(FB_SIZE * 0.08))
-fbLabel.BackgroundTransparency = 1
-fbLabel.Text              = "FLA"
-fbLabel.TextSize          = math.max(8, math.round(FB_SIZE * 0.32))
-fbLabel.Font              = Enum.Font.GothamBold
-fbLabel.TextColor3        = Color3.fromRGB(255, 255, 255)
-fbLabel.TextXAlignment    = Enum.TextXAlignment.Center
-fbLabel.ZIndex            = 21
-
-local fbSub = Instance.new("TextLabel", FloatBtn)
-fbSub.Size              = UDim2.new(1, 0, 0, math.round(FB_SIZE * 0.28))
-fbSub.Position          = UDim2.new(0, 0, 1, -math.round(FB_SIZE * 0.32))
-fbSub.BackgroundTransparency = 1
-fbSub.Text              = "HUB"
-fbSub.TextSize          = math.max(6, math.round(FB_SIZE * 0.20))
-fbSub.Font              = Enum.Font.Gotham
-fbSub.TextColor3        = Color3.fromRGB(255, 185, 185)
-fbSub.TextXAlignment    = Enum.TextXAlignment.Center
-fbSub.ZIndex            = 21
-
--- Dot indikator (merah = hidden, hijau = visible)
-local fbDot = Instance.new("Frame", FloatBtn)
-fbDot.Size             = UDim2.new(0, sc(10), 0, sc(10))
-fbDot.Position         = UDim2.new(1, -sc(12), 0, sc(2))
-fbDot.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-fbDot.BorderSizePixel  = 0
-fbDot.ZIndex           = 22
-Instance.new("UICorner", fbDot).CornerRadius = UDim.new(1, 0)
-
--- =====================================================
--- FLOATING BUTTON DRAG
--- =====================================================
-do
-    local fbDrag, fbDs, fbDp = false, nil, nil
-    local fbMoved = false
-
-    FloatBtn.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1
-        or i.UserInputType == Enum.UserInputType.Touch then
-            fbDrag = true
-            fbMoved = false
-            fbDs = i.Position
-            fbDp = FloatBtn.Position
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(i)
-        if fbDrag and (i.UserInputType == Enum.UserInputType.MouseMovement
-                    or i.UserInputType == Enum.UserInputType.Touch) then
-            local d = i.Position - fbDs
-            if math.abs(d.X) > 4 or math.abs(d.Y) > 4 then fbMoved = true end
-            FloatBtn.Position = UDim2.new(
-                fbDp.X.Scale, fbDp.X.Offset + d.X,
-                fbDp.Y.Scale, fbDp.Y.Offset + d.Y
-            )
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1
-        or i.UserInputType == Enum.UserInputType.Touch then
-            fbDrag = false
-            -- Kalau tidak di-drag (tap), toggle GUI
-            if not fbMoved then
-                -- toggle ditangani di bawah via MouseButton1Click
-            end
-        end
-    end)
+if not parented then
+    ScreenGui.Parent = LocalPlayer.PlayerGui
 end
 
 -- =====================================================
@@ -193,124 +94,131 @@ local Win = Instance.new("Frame", ScreenGui)
 Win.Name             = "Win"
 Win.Size             = UDim2.new(0, GUI_W, 0, GUI_H)
 Win.Position         = UDim2.new(0.5, -GUI_W/2, 0.5, -GUI_H/2)
-Win.BackgroundColor3 = Color3.fromRGB(8, 6, 20)
+Win.BackgroundColor3 = Color3.fromRGB(7, 5, 18)
 Win.BorderSizePixel  = 0
 Win.ClipsDescendants = true
-Win.Visible          = false   -- mulai hidden
-Instance.new("UICorner", Win).CornerRadius = UDim.new(0, sc(16))
+Instance.new("UICorner", Win).CornerRadius = UDim.new(0, sc(18))
 
+-- Border glow
 local winStroke = Instance.new("UIStroke", Win)
-winStroke.Color        = Color3.fromRGB(200, 30, 30)
+winStroke.Color        = Color3.fromRGB(100, 38, 220)
 winStroke.Thickness    = 1.5
-winStroke.Transparency = 0.3
+winStroke.Transparency = 0.2
 
+-- Background gradient
 local winGrad = Instance.new("UIGradient", Win)
 winGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0,   Color3.fromRGB(16, 8, 8)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(8,  6, 20)),
-    ColorSequenceKeypoint.new(1,   Color3.fromRGB(12, 6, 14)),
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(13,  8, 32)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB( 7,  5, 18)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(11,  8, 26)),
 })
-winGrad.Rotation = 135
+winGrad.Rotation = 145
 
 -- =====================================================
 -- TITLE BAR
 -- =====================================================
-local TB_H = sc(48)
+local TB_H = sc(52)
+
 local TBar = Instance.new("Frame", Win)
+TBar.Name             = "TBar"
 TBar.Size             = UDim2.new(1, 0, 0, TB_H)
-TBar.BackgroundColor3 = Color3.fromRGB(18, 5, 5)
+TBar.BackgroundColor3 = Color3.fromRGB(16, 7, 38)
 TBar.BorderSizePixel  = 0
-Instance.new("UICorner", TBar).CornerRadius = UDim.new(0, sc(16))
+Instance.new("UICorner", TBar).CornerRadius = UDim.new(0, sc(18))
 
--- Fix rounded corners bawah title bar
-local tBarFix = Instance.new("Frame", TBar)
-tBarFix.Size             = UDim2.new(1, 0, 0, sc(16))
-tBarFix.Position         = UDim2.new(0, 0, 1, -sc(16))
-tBarFix.BackgroundColor3 = Color3.fromRGB(18, 5, 5)
-tBarFix.BorderSizePixel  = 0
+-- Fix rounded corner bawah title bar (kotak, bukan bulat)
+local tFix = Instance.new("Frame", TBar)
+tFix.Size             = UDim2.new(1, 0, 0, sc(18))
+tFix.Position         = UDim2.new(0, 0, 1, -sc(18))
+tFix.BackgroundColor3 = Color3.fromRGB(16, 7, 38)
+tFix.BorderSizePixel  = 0
 
+-- Gradient title bar
 local tGrad = Instance.new("UIGradient", TBar)
 tGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0,   Color3.fromRGB(200, 30, 30)),
-    ColorSequenceKeypoint.new(0.6, Color3.fromRGB(120, 10, 10)),
-    ColorSequenceKeypoint.new(1,   Color3.fromRGB(18,   5,  5)),
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(95, 32, 215)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(52, 14, 135)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(16,  7,  38)),
 })
 tGrad.Rotation = 90
 
--- Icon + Title
+-- Icon ⚔
 local tIcon = Instance.new("TextLabel", TBar)
-tIcon.Size               = UDim2.new(0, sc(36), 0, sc(36))
-tIcon.Position           = UDim2.new(0, sc(12), 0.5, -sc(18))
+tIcon.Size               = UDim2.new(0, sc(30), 0, sc(30))
+tIcon.Position           = UDim2.new(0, sc(14), 0.5, -sc(15))
 tIcon.BackgroundTransparency = 1
 tIcon.Text               = "⚔"
 tIcon.TextSize           = fs(20)
 tIcon.Font               = Enum.Font.GothamBold
-tIcon.TextColor3         = Color3.fromRGB(255, 200, 200)
+tIcon.TextColor3         = Color3.fromRGB(255, 210, 55)
 
+-- Title text
 local tTitle = Instance.new("TextLabel", TBar)
-tTitle.Size              = UDim2.new(0, sc(200), 0, sc(20))
-tTitle.Position          = UDim2.new(0, sc(50), 0, sc(6))
+tTitle.Size              = UDim2.new(0.6, 0, 0, sc(18))
+tTitle.Position          = UDim2.new(0, sc(48), 0, sc(8))
 tTitle.BackgroundTransparency = 1
-tTitle.Text              = "FLA HUB"
-tTitle.TextSize          = fs(14)
+tTitle.Text              = "ARISE SHADOW HUNT"
+tTitle.TextSize          = fs(13)
 tTitle.Font              = Enum.Font.GothamBold
 tTitle.TextColor3        = Color3.fromRGB(255, 255, 255)
 tTitle.TextXAlignment    = Enum.TextXAlignment.Left
 
+-- Subtitle
 local tSub = Instance.new("TextLabel", TBar)
-tSub.Size                = UDim2.new(0, sc(240), 0, sc(14))
-tSub.Position            = UDim2.new(0, sc(50), 0, sc(27))
+tSub.Size                = UDim2.new(0.6, 0, 0, sc(13))
+tSub.Position            = UDim2.new(0, sc(48), 0, sc(28))
 tSub.BackgroundTransparency = 1
-tSub.Text                = "Arise Shadow Hunt  •  v1.0"
+tSub.Text                = "FARMING HUB  •  v1.0"
 tSub.TextSize            = fs(8)
 tSub.Font                = Enum.Font.Gotham
-tSub.TextColor3          = Color3.fromRGB(220, 120, 120)
+tSub.TextColor3          = Color3.fromRGB(145, 85, 255)
 tSub.TextXAlignment      = Enum.TextXAlignment.Left
 
--- Close & Minimize buttons
-local function WinBtn(offsetFromRight, col, txt)
-    local bSz = sc(22)
+-- ── Window buttons (Close & Minimize) ──────────────
+local function MakeWinBtn(rightOffset, bgColor, label)
+    local bSz = sc(24)
     local b = Instance.new("TextButton", TBar)
     b.Size             = UDim2.new(0, bSz, 0, bSz)
-    b.Position         = UDim2.new(1, -(offsetFromRight + bSz), 0.5, -bSz/2)
-    b.BackgroundColor3 = col
+    b.Position         = UDim2.new(1, -rightOffset - bSz, 0.5, -bSz/2)
+    b.BackgroundColor3 = bgColor
     b.BorderSizePixel  = 0
-    b.Text             = txt
-    b.TextSize         = fs(9)
+    b.Text             = label
+    b.TextSize         = fs(11)
     b.Font             = Enum.Font.GothamBold
     b.TextColor3       = Color3.fromRGB(255, 255, 255)
     b.AutoButtonColor  = false
-    Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, sc(6))
     return b
 end
-local CloseBtn = WinBtn(sc(8),  Color3.fromRGB(190, 35, 35), "✕")
-local MinBtn   = WinBtn(sc(36), Color3.fromRGB(50, 25, 25),  "—")
+
+local CloseBtn = MakeWinBtn(sc(6),  Color3.fromRGB(170, 35, 58), "✕")
+local MinBtn   = MakeWinBtn(sc(36), Color3.fromRGB(40, 22, 75),  "—")
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
 
 -- =====================================================
--- SIDEBAR (kiri)
+-- SIDEBAR  (nav menu kiri)
 -- =====================================================
-local SB_W = sc(160)
+local SB_W = sc(150)
 
 local Sidebar = Instance.new("Frame", Win)
 Sidebar.Size             = UDim2.new(0, SB_W, 1, -TB_H)
 Sidebar.Position         = UDim2.new(0, 0, 0, TB_H)
-Sidebar.BackgroundColor3 = Color3.fromRGB(12, 5, 5)
+Sidebar.BackgroundColor3 = Color3.fromRGB(10, 6, 24)
 Sidebar.BorderSizePixel  = 0
+Instance.new("UIStroke", Sidebar).Color = Color3.fromRGB(42, 16, 80)
 
--- Divider
-local Divider = Instance.new("Frame", Win)
-Divider.Size             = UDim2.new(0, 1, 1, -TB_H)
-Divider.Position         = UDim2.new(0, SB_W, 0, TB_H)
-Divider.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
-Divider.BorderSizePixel  = 0
-Instance.new("UIGradient", Divider).Transparency = NumberSequence.new({
-    NumberSequenceKeypoint.new(0, 0.2),
-    NumberSequenceKeypoint.new(0.5, 0.6),
-    NumberSequenceKeypoint.new(1, 0.9),
-})
+-- Garis pemisah sidebar | content
+local divLine = Instance.new("Frame", Win)
+divLine.Size             = UDim2.new(0, 1, 1, -TB_H)
+divLine.Position         = UDim2.new(0, SB_W, 0, TB_H)
+divLine.BackgroundColor3 = Color3.fromRGB(42, 16, 80)
+divLine.BorderSizePixel  = 0
 
 -- =====================================================
--- CONTENT AREA (kanan)
+-- CONTENT AREA
 -- =====================================================
 local ContentArea = Instance.new("Frame", Win)
 ContentArea.Size             = UDim2.new(1, -SB_W, 1, -TB_H)
@@ -319,247 +227,204 @@ ContentArea.BackgroundTransparency = 1
 ContentArea.ClipsDescendants = true
 
 -- =====================================================
--- PANELS
+-- PANEL SYSTEM
 -- =====================================================
 local Panels = {}
+
 local function NewPanel(tag)
     local p = Instance.new("Frame", ContentArea)
-    p.Name             = tag
-    p.Size             = UDim2.new(1, 0, 1, 0)
+    p.Name                   = tag
+    p.Size                   = UDim2.new(1, 0, 1, 0)
     p.BackgroundTransparency = 1
-    p.Visible          = false
-    Panels[tag]        = p
+    p.Visible                = false
+    Panels[tag]              = p
     return p
 end
 
--- Panel placeholder — nanti diisi
-local PanelMain    = NewPanel("main")
-local PanelMass    = NewPanel("mass")
-local PanelReroll  = NewPanel("reroll")
-local PanelSetting = NewPanel("setting")
-
--- Placeholder text di setiap panel
-local function MakePlaceholder(panel, title, icon, desc)
-    local f = Instance.new("Frame", panel)
-    f.Size             = UDim2.new(1, -sc(28), 0, sc(120))
-    f.Position         = UDim2.new(0, sc(14), 0.5, -sc(60))
-    f.BackgroundColor3 = Color3.fromRGB(14, 6, 6)
-    f.BorderSizePixel  = 0
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, sc(14))
-    local fStroke = Instance.new("UIStroke", f)
-    fStroke.Color = Color3.fromRGB(200, 30, 30); fStroke.Transparency = 0.6; fStroke.Thickness = 1
-
-    local ic = Instance.new("TextLabel", f)
-    ic.Size = UDim2.new(1, 0, 0, sc(44)); ic.Position = UDim2.new(0, 0, 0, sc(14))
-    ic.BackgroundTransparency = 1; ic.Text = icon; ic.TextSize = fs(28)
-    ic.Font = Enum.Font.GothamBold; ic.TextColor3 = Color3.fromRGB(220, 80, 80)
-    ic.TextXAlignment = Enum.TextXAlignment.Center
-
-    local tl = Instance.new("TextLabel", f)
-    tl.Size = UDim2.new(1, -sc(20), 0, sc(22)); tl.Position = UDim2.new(0, sc(10), 0, sc(58))
-    tl.BackgroundTransparency = 1; tl.Text = title; tl.TextSize = fs(13)
-    tl.Font = Enum.Font.GothamBold; tl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    tl.TextXAlignment = Enum.TextXAlignment.Center
-
-    local sl = Instance.new("TextLabel", f)
-    sl.Size = UDim2.new(1, -sc(20), 0, sc(28)); sl.Position = UDim2.new(0, sc(10), 0, sc(82))
-    sl.BackgroundTransparency = 1; sl.Text = desc; sl.TextSize = fs(9)
-    sl.Font = Enum.Font.Gotham; sl.TextColor3 = Color3.fromRGB(180, 100, 100)
-    sl.TextXAlignment = Enum.TextXAlignment.Center; sl.TextWrapped = true
-end
-
-MakePlaceholder(PanelMain,    "MAIN",           "🏠", "Halaman utama — konten akan ditambahkan")
-MakePlaceholder(PanelMass,    "MASS ATTACK",    "⚔",  "Auto attack semua musuh — konten akan ditambahkan")
-MakePlaceholder(PanelReroll,  "REROLL",         "🎲", "Auto reroll equipment — konten akan ditambahkan")
-MakePlaceholder(PanelSetting, "PLAYER SETTING", "⚙",  "Pengaturan player — konten akan ditambahkan")
-
 -- =====================================================
--- SIDEBAR NAV ITEMS
+-- NAV ITEMS — tambah/kurangi sesuai kebutuhan
 -- =====================================================
 local NAV_ITEMS = {
-    { icon="🏠", label="Main",           tag="main"    },
-    { icon="⚔",  label="Mass Attack",   tag="mass"    },
-    { icon="🎲", label="Reroll",         tag="reroll"  },
-    { icon="⚙",  label="Player Setting",tag="setting" },
+    { icon = "⚔",  label = "Mass Attack",  tag = "mass"    },
+    { icon = "🗺",  label = "Map Rotation", tag = "map"     },
+    { icon = "⚡",  label = "Auto Raid",    tag = "raid"    },
+    { icon = "🎲",  label = "Roll Equip",   tag = "equip"   },
+    { icon = "🗡",  label = "Roll Sword",   tag = "sword"   },
+    { icon = "✨",  label = "Roll Ability", tag = "ability" },
 }
 
+-- Buat panel kosong untuk tiap tab
+for _, item in ipairs(NAV_ITEMS) do
+    local p = NewPanel(item.tag)
+
+    -- Placeholder label di tengah panel
+    local placeholder = Instance.new("TextLabel", p)
+    placeholder.Size                = UDim2.new(1, -sc(24), 0, sc(30))
+    placeholder.Position            = UDim2.new(0, sc(12), 0, sc(14))
+    placeholder.BackgroundTransparency = 1
+    placeholder.Text                = item.icon .. "   " .. string.upper(item.label)
+    placeholder.TextSize            = fs(11)
+    placeholder.Font                = Enum.Font.GothamBold
+    placeholder.TextColor3          = Color3.fromRGB(160, 110, 255)
+    placeholder.TextXAlignment      = Enum.TextXAlignment.Left
+
+    local sep = Instance.new("Frame", p)
+    sep.Size             = UDim2.new(1, -sc(24), 0, 1)
+    sep.Position         = UDim2.new(0, sc(12), 0, sc(50))
+    sep.BackgroundColor3 = Color3.fromRGB(42, 16, 80)
+    sep.BorderSizePixel  = 0
+
+    local comingSoon = Instance.new("TextLabel", p)
+    comingSoon.Size                = UDim2.new(1, -sc(24), 0, sc(22))
+    comingSoon.Position            = UDim2.new(0, sc(12), 0, sc(62))
+    comingSoon.BackgroundTransparency = 1
+    comingSoon.Text                = "Panel ini masih kosong — siap diisi fitur"
+    comingSoon.TextSize            = fs(9)
+    comingSoon.Font                = Enum.Font.Gotham
+    comingSoon.TextColor3          = Color3.fromRGB(80, 60, 110)
+    comingSoon.TextXAlignment      = Enum.TextXAlignment.Left
+    comingSoon.TextWrapped         = true
+end
+
+-- =====================================================
+-- SIDEBAR NAV BUTTONS
+-- =====================================================
 local NavBtnRefs = {}
-local ActiveTag  = "main"
 
 local function SwitchTab(tag)
-    ActiveTag = tag
     for _, p in pairs(Panels) do p.Visible = false end
     if Panels[tag] then Panels[tag].Visible = true end
+
     for _, ref in pairs(NavBtnRefs) do
         local on = (ref.tag == tag)
-        TweenService:Create(ref.bg, TweenInfo.new(0.18), {
-            BackgroundColor3 = on and Color3.fromRGB(160, 20, 20) or Color3.fromRGB(12, 5, 5)
+        TweenService:Create(ref.bg, TweenInfo.new(0.16), {
+            BackgroundColor3 = on and Color3.fromRGB(72, 24, 165) or Color3.fromRGB(10, 6, 24)
         }):Play()
-        ref.accent.BackgroundTransparency = on and 0 or 1
-        ref.iconLbl.TextColor3  = on and Color3.fromRGB(255, 200, 200) or Color3.fromRGB(130, 70, 70)
-        ref.labelLbl.TextColor3 = on and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(130, 70, 70)
-        if on then
-            TweenService:Create(ref.bg, TweenInfo.new(0.08), { Size = UDim2.new(1, -sc(10), 0, sc(54)) }):Play()
-        else
-            TweenService:Create(ref.bg, TweenInfo.new(0.08), { Size = UDim2.new(1, -sc(14), 0, sc(52)) }):Play()
-        end
+        ref.ibg.BackgroundColor3 = on and Color3.fromRGB(105, 42, 228) or Color3.fromRGB(20, 10, 44)
+        ref.lbl.TextColor3       = on and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(110, 84, 158)
+        ref.stroke.Transparency  = on and 0.4 or 1
     end
 end
 
--- Nav button top padding
-local navTopPad = sc(14)
+local navBtnH   = sc(52)
+local navBtnPad = sc(16)
 
 for idx, item in ipairs(NAV_ITEMS) do
-    local yPos = navTopPad + (idx - 1) * sc(60)
+    local yOff = sc(12) + (idx - 1) * sc(58)
 
-    -- Background button
     local bg = Instance.new("TextButton", Sidebar)
-    bg.Size             = UDim2.new(1, -sc(14), 0, sc(52))
-    bg.Position         = UDim2.new(0, sc(7), 0, yPos)
-    bg.BackgroundColor3 = Color3.fromRGB(12, 5, 5)
+    bg.Size             = UDim2.new(1, -navBtnPad, 0, navBtnH)
+    bg.Position         = UDim2.new(0, navBtnPad / 2, 0, yOff)
+    bg.BackgroundColor3 = Color3.fromRGB(10, 6, 24)
     bg.BorderSizePixel  = 0
     bg.Text             = ""
     bg.AutoButtonColor  = false
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, sc(12))
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, sc(11))
 
-    -- Active accent bar (kiri)
-    local accent = Instance.new("Frame", bg)
-    accent.Size             = UDim2.new(0, sc(3), 0, sc(32))
-    accent.Position         = UDim2.new(0, sc(4), 0.5, -sc(16))
-    accent.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-    accent.BorderSizePixel  = 0
-    accent.BackgroundTransparency = 1
-    Instance.new("UICorner", accent).CornerRadius = UDim.new(1, 0)
+    local bgStroke = Instance.new("UIStroke", bg)
+    bgStroke.Color        = Color3.fromRGB(115, 48, 255)
+    bgStroke.Thickness    = 1.2
+    bgStroke.Transparency = 1
 
-    -- Icon
-    local iconLbl = Instance.new("TextLabel", bg)
-    iconLbl.Size               = UDim2.new(0, sc(32), 0, sc(32))
-    iconLbl.Position           = UDim2.new(0, sc(14), 0.5, -sc(16))
-    iconLbl.BackgroundTransparency = 1
-    iconLbl.Text               = item.icon
-    iconLbl.TextSize           = fs(18)
-    iconLbl.Font               = Enum.Font.GothamBold
-    iconLbl.TextColor3         = Color3.fromRGB(130, 70, 70)
-    iconLbl.TextXAlignment     = Enum.TextXAlignment.Center
+    -- Icon background
+    local ibg = Instance.new("Frame", bg)
+    ibg.Size             = UDim2.new(0, sc(30), 0, sc(30))
+    ibg.Position         = UDim2.new(0.5, -sc(15), 0, sc(4))
+    ibg.BackgroundColor3 = Color3.fromRGB(20, 10, 44)
+    ibg.BorderSizePixel  = 0
+    Instance.new("UICorner", ibg).CornerRadius = UDim.new(0, sc(8))
 
-    -- Label
-    local labelLbl = Instance.new("TextLabel", bg)
-    labelLbl.Size              = UDim2.new(1, -sc(54), 1, 0)
-    labelLbl.Position          = UDim2.new(0, sc(50), 0, 0)
-    labelLbl.BackgroundTransparency = 1
-    labelLbl.Text              = item.label
-    labelLbl.TextSize          = fs(10)
-    labelLbl.Font              = Enum.Font.GothamBold
-    labelLbl.TextColor3        = Color3.fromRGB(130, 70, 70)
-    labelLbl.TextXAlignment    = Enum.TextXAlignment.Left
-    labelLbl.TextWrapped       = true
+    local ic = Instance.new("TextLabel", ibg)
+    ic.Size               = UDim2.new(1, 0, 1, 0)
+    ic.BackgroundTransparency = 1
+    ic.Text               = item.icon
+    ic.TextSize           = fs(15)
+    ic.Font               = Enum.Font.GothamBold
+    ic.TextColor3         = Color3.fromRGB(255, 210, 55)
+    ic.TextXAlignment     = Enum.TextXAlignment.Center
 
-    NavBtnRefs[idx] = { tag=item.tag, bg=bg, accent=accent, iconLbl=iconLbl, labelLbl=labelLbl }
+    local lbl = Instance.new("TextLabel", bg)
+    lbl.Size              = UDim2.new(1, -sc(6), 0, sc(14))
+    lbl.Position          = UDim2.new(0, sc(3), 0, sc(36))
+    lbl.BackgroundTransparency = 1
+    lbl.Text              = item.label
+    lbl.TextSize          = fs(7)
+    lbl.Font              = Enum.Font.GothamBold
+    lbl.TextColor3        = Color3.fromRGB(110, 84, 158)
+    lbl.TextXAlignment    = Enum.TextXAlignment.Center
+    lbl.TextWrapped       = true
+
+    NavBtnRefs[idx] = { tag = item.tag, bg = bg, ibg = ibg, lbl = lbl, stroke = bgStroke }
 
     bg.MouseButton1Click:Connect(function()
         SwitchTab(item.tag)
+        -- Animasi klik
+        TweenService:Create(bg, TweenInfo.new(0.06), {
+            Size = UDim2.new(1, -navBtnPad - sc(4), 0, navBtnH - sc(4))
+        }):Play()
+        task.wait(0.06)
+        TweenService:Create(bg, TweenInfo.new(0.10), {
+            Size = UDim2.new(1, -navBtnPad, 0, navBtnH)
+        }):Play()
     end)
 end
 
 -- Aktifkan tab pertama
-SwitchTab("main")
+SwitchTab(NAV_ITEMS[1].tag)
 
 -- =====================================================
--- SIDEBAR BOTTOM — Versi label
--- =====================================================
-local verLbl = Instance.new("TextLabel", Sidebar)
-verLbl.Size              = UDim2.new(1, -sc(10), 0, sc(20))
-verLbl.Position          = UDim2.new(0, sc(5), 1, -sc(24))
-verLbl.BackgroundTransparency = 1
-verLbl.Text              = "FLA HUB  v1.0"
-verLbl.TextSize          = fs(7)
-verLbl.Font              = Enum.Font.Gotham
-verLbl.TextColor3        = Color3.fromRGB(80, 35, 35)
-verLbl.TextXAlignment    = Enum.TextXAlignment.Center
-
--- =====================================================
--- WINDOW DRAG (Title Bar)
+-- DRAG — title bar bisa digeser (mouse & touch)
 -- =====================================================
 do
-    local drag, ds, dp = false, nil, nil
-    TBar.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1
-        or i.UserInputType == Enum.UserInputType.Touch then
-            drag = true; ds = i.Position; dp = Win.Position
+    local dragging   = false
+    local dragStart  = nil
+    local startPos   = nil
+
+    TBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = Win.Position
         end
     end)
-    UserInputService.InputChanged:Connect(function(i)
-        if drag and (i.UserInputType == Enum.UserInputType.MouseMovement
-                  or i.UserInputType == Enum.UserInputType.Touch) then
-            local d = i.Position - ds
-            Win.Position = UDim2.new(dp.X.Scale, dp.X.Offset+d.X, dp.Y.Scale, dp.Y.Offset+d.Y)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (
+            input.UserInputType == Enum.UserInputType.MouseMovement or
+            input.UserInputType == Enum.UserInputType.Touch
+        ) then
+            local delta = input.Position - dragStart
+            Win.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
         end
     end)
-    UserInputService.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1
-        or i.UserInputType == Enum.UserInputType.Touch then drag = false end
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
     end)
 end
 
 -- =====================================================
--- SHOW / HIDE LOGIC
+-- MINIMIZE / RESTORE
 -- =====================================================
-local guiVisible = false
-
-local function ShowGUI()
-    guiVisible = true
-    Win.Visible = true
-    Win.Size    = UDim2.new(0, GUI_W * 0.85, 0, GUI_H * 0.85)
-    Win.Position = UDim2.new(0.5, -(GUI_W * 0.85)/2, 0.5, -(GUI_H * 0.85)/2)
-    TweenService:Create(Win, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size     = UDim2.new(0, GUI_W, 0, GUI_H),
-        Position = UDim2.new(0.5, -GUI_W/2, 0.5, -GUI_H/2),
-    }):Play()
-    fbDot.BackgroundColor3 = Color3.fromRGB(50, 230, 100)
-    TweenService:Create(FloatBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = Color3.fromRGB(160, 20, 20)
-    }):Play()
-end
-
-local function HideGUI()
-    guiVisible = false
-    TweenService:Create(Win, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-        Size     = UDim2.new(0, GUI_W * 0.85, 0, GUI_H * 0.85),
-        Position = UDim2.new(0.5, -(GUI_W * 0.85)/2, 0.5, -(GUI_H * 0.85)/2),
-    }):Play()
-    task.delay(0.18, function() Win.Visible = false end)
-    fbDot.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-    TweenService:Create(FloatBtn, TweenInfo.new(0.15), {
-        BackgroundColor3 = Color3.fromRGB(200, 30, 30)
-    }):Play()
-end
-
-FloatBtn.MouseButton1Click:Connect(function()
-    if guiVisible then HideGUI() else ShowGUI() end
-end)
-
--- =====================================================
--- CLOSE & MINIMIZE
--- =====================================================
-CloseBtn.MouseButton1Click:Connect(function()
-    HideGUI()
-end)
-
 local minimized = false
+
 MinBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
-    if minimized then
-        TweenService:Create(Win, TweenInfo.new(0.22, Enum.EasingStyle.Quart), {
-            Size = UDim2.new(0, GUI_W, 0, TB_H)
-        }):Play()
-        MinBtn.Text = "□"
-    else
-        TweenService:Create(Win, TweenInfo.new(0.22, Enum.EasingStyle.Quart), {
-            Size = UDim2.new(0, GUI_W, 0, GUI_H)
-        }):Play()
-        MinBtn.Text = "—"
-    end
+    TweenService:Create(Win, TweenInfo.new(0.28, Enum.EasingStyle.Quart), {
+        Size = minimized
+            and UDim2.new(0, GUI_W, 0, TB_H)
+            or  UDim2.new(0, GUI_W, 0, GUI_H)
+    }):Play()
+    MinBtn.Text = minimized and "□" or "—"
 end)
 
-print("[ FLA Hub v1.0 ] Loaded ✓")
-print("[ SCREEN ] "..SW.."x"..SH.." | GUI: "..GUI_W.."x"..GUI_H)
+-- =====================================================
+print("[ ASH Farming Hub ] ✓ Loaded")
+print("[ Screen ] "..SW.."x"..SH.." | GUI: "..GUI_W.."x"..GUI_H.." | Scale: "..math.round(S*100).."%")
