@@ -1,7 +1,7 @@
 -- =====================================================
---   ARISE SHADOW HUNT | AUTOMATION HUB v2.0
---   FULLY RESPONSIVE - Optimized untuk Smartphone & Desktop
---   Auto-Scale berdasarkan screen resolution
+--   ARISE SHADOW HUNT | AUTOMATION HUB v2.1
+--   RESPONSIVE - Floating Toggle Button untuk Smartphone
+--   Floating button selalu tampil, tap untuk show/hide GUI
 -- =====================================================
 
 local Players           = game:GetService("Players")
@@ -22,51 +22,44 @@ local RE_Reward    = Remotes:WaitForChild("ExtraReward")
 -- =====================================================
 -- RESPONSIVE SCALING SYSTEM
 -- =====================================================
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local screenSize = PlayerGui.AbsoluteSize
-local screenWidth = screenSize.X
+local PlayerGui    = LocalPlayer:WaitForChild("PlayerGui")
+local screenSize   = PlayerGui.AbsoluteSize
+local screenWidth  = screenSize.X
 local screenHeight = screenSize.Y
 
--- Detect device type & calculate scale
 local isSmartphone = screenWidth < 800
-local isTablet = screenWidth >= 800 and screenWidth < 1200
-local isDesktop = screenWidth >= 1200
+local isTablet     = screenWidth >= 800 and screenWidth < 1200
+local isDesktop    = screenWidth >= 1200
 
--- Base sizes untuk desktop 1920x1080
-local BASE_SIZES = {
-    windowWidth = 560,
-    windowHeight = 630,
-    sidebarWidth = 150,
-    titleBarHeight = 52,
-}
-
--- Calculate responsive scale dengan constraints
+-- ── SCALE CALCULATION ────────────────────────────────
 local function calculateScale()
     if isSmartphone then
-        -- Smartphone: gunakan max 95% dari screen width
-        return math.min(screenWidth / 560, screenHeight / 630) * 0.95
+        -- 60% layar smartphone
+        local scaleW = (screenWidth  * 0.60) / 560
+        local scaleH = (screenHeight * 0.75) / 630
+        return math.min(scaleW, scaleH)
     elseif isTablet then
-        -- Tablet: gunakan 80% dari screen width
-        return math.min(screenWidth / 560, screenHeight / 630) * 0.80
+        return math.min(screenWidth / 560, screenHeight / 630) * 0.78
     else
-        -- Desktop: normal scale
         return math.min(screenWidth / 1920, screenHeight / 1080)
     end
 end
 
-local SCALE = calculateScale()
-SCALE = math.clamp(SCALE, 0.5, 1.3)  -- Min 50%, Max 130%
+local SCALE = math.clamp(calculateScale(), 0.42, 1.3)
 
--- Calculated sizes
-local WINDOW_WIDTH = math.floor(BASE_SIZES.windowWidth * SCALE)
-local WINDOW_HEIGHT = math.floor(BASE_SIZES.windowHeight * SCALE)
-local SIDEBAR_WIDTH = math.floor(BASE_SIZES.sidebarWidth * SCALE)
-local TITLE_BAR_HEIGHT = math.floor(BASE_SIZES.titleBarHeight * SCALE)
-local CONTENT_HEIGHT = WINDOW_HEIGHT - TITLE_BAR_HEIGHT
+-- ── SIZES ─────────────────────────────────────────────
+local BASE_WINDOW_W     = 560
+local BASE_WINDOW_H     = 630
+local BASE_SIDEBAR_W    = 150
+local BASE_TITLEBAR_H   = 52
 
--- Font size calculation
-local function scaleFontSize(baseSize)
-    return math.max(6, math.floor(baseSize * SCALE))
+local WINDOW_WIDTH      = math.floor(BASE_WINDOW_W   * SCALE)
+local WINDOW_HEIGHT     = math.floor(BASE_WINDOW_H   * SCALE)
+local SIDEBAR_WIDTH     = math.floor(BASE_SIDEBAR_W  * SCALE)
+local TITLE_BAR_HEIGHT  = math.floor(BASE_TITLEBAR_H * SCALE)
+
+local function scaleFontSize(base)
+    return math.max(6, math.floor(base * SCALE))
 end
 
 -- =====================================================
@@ -93,9 +86,6 @@ local MAPS = {
     { name="Map 18", id=50018, remote="Local" },
 }
 
--- =====================================================
--- TELEPORT MAP
--- =====================================================
 local function TeleportToMap(mapData)
     if mapData.remote == "Start" then
         pcall(function() RE_Start:FireServer({ mapId = mapData.id }) end)
@@ -120,7 +110,6 @@ local MassAttack = {
 local RE_DrawHero = Remotes:WaitForChild("GetDrawHeroId")
 local RE_Extra    = Remotes:WaitForChild("ExtraReward")
 
--- ── GET ENEMIES ──────────────────────────────────────
 local function GetEnemies()
     local list   = {}
     local folder = workspace:FindFirstChild("Enemys")
@@ -131,20 +120,15 @@ local function GetEnemies()
             local hrp  = enemy:FindFirstChild("HumanoidRootPart")
             local hum  = enemy:FindFirstChildOfClass("Humanoid")
             if guid and hrp and hum and hum.Health > 0 then
-                table.insert(list, {
-                    model = enemy,
-                    guid  = guid,
-                    hrp   = hrp,
-                })
+                table.insert(list, { model=enemy, guid=guid, hrp=hrp })
             end
         end
     end
     return list
 end
 
--- ── AUTO COLLECT ─────────────────────────────────────
 local collectedGuids = {}
-local RE_DropItems = Remotes:WaitForChild("DropItems")
+local RE_DropItems   = Remotes:WaitForChild("DropItems")
 RE_DropItems.OnClientEvent:Connect(function(data)
     if not MassAttack.autoCollect then return end
     if not data or not data.rewards then return end
@@ -154,9 +138,7 @@ RE_DropItems.OnClientEvent:Connect(function(data)
                 local guid = reward.guid
                 if not collectedGuids[guid] then
                     collectedGuids[guid] = true
-                    pcall(function()
-                        RE_Collect:InvokeServer(guid)
-                    end)
+                    pcall(function() RE_Collect:InvokeServer(guid) end)
                     MassAttack.collected = MassAttack.collected + 1
                     task.wait(0.02)
                 end
@@ -165,7 +147,6 @@ RE_DropItems.OnClientEvent:Connect(function(data)
     end)
 end)
 
--- ── AUTO DESTROYER ───────────────────────────────────
 local destroyerQueue = {}
 pcall(function()
     if RE_DrawHero:IsA("RemoteEvent") then
@@ -178,7 +159,6 @@ pcall(function()
     end
 end)
 
--- ── TRACK ENEMY DEATH ────────────────────────────────
 local deadGuids     = {}
 local RE_EnemyDeath = Remotes:WaitForChild("EnemyDeath")
 RE_EnemyDeath.OnClientEvent:Connect(function(data)
@@ -192,7 +172,6 @@ RE_EnemyDeath.OnClientEvent:Connect(function(data)
     end
 end)
 
--- ── HELPER ───────────────────────────────────────────
 local function IsEnemyDead(e)
     if deadGuids[e.guid] then return true end
     if not e.model or not e.model.Parent then return true end
@@ -200,7 +179,6 @@ local function IsEnemyDead(e)
     return not hum or hum.Health <= 0
 end
 
--- ── AUTO DESTROYER WORKER ────────────────────────────
 local function StartDestroyerWorker()
     task.spawn(function()
         while MassAttack.running do
@@ -208,21 +186,18 @@ local function StartDestroyerWorker()
                 local data = table.remove(destroyerQueue, 1)
                 pcall(function()
                     RE_DrawHero:InvokeServer({
-                        expireTime   = data.expireTime or (os.time() + 30),
-                        quirks       = data.quirks or {0, 0, 0},
-                        monsterGuid  = data.monsterGuid or "",
-                        monsterId    = data.monsterId or 0,
-                        guid         = data.guid,
-                        multiplier   = data.multiplier or 1,
-                        pos          = data.pos or Vector3.new(0,0,0),
+                        expireTime  = data.expireTime or (os.time() + 30),
+                        quirks      = data.quirks or {0,0,0},
+                        monsterGuid = data.monsterGuid or "",
+                        monsterId   = data.monsterId or 0,
+                        guid        = data.guid,
+                        multiplier  = data.multiplier or 1,
+                        pos         = data.pos or Vector3.new(0,0,0),
                     })
                 end)
                 task.wait(0.1)
                 pcall(function()
-                    RE_Extra:FireServer({
-                        isSell = true,
-                        guid   = data.guid,
-                    })
+                    RE_Extra:FireServer({ isSell=true, guid=data.guid })
                 end)
             end
             task.wait(0.05)
@@ -230,7 +205,6 @@ local function StartDestroyerWorker()
     end)
 end
 
--- ── MAIN ATTACK LOOP ─────────────────────────────────
 local function AttackCurrentMap(onStatus)
     deadGuids      = {}
     collectedGuids = {}
@@ -239,8 +213,7 @@ local function AttackCurrentMap(onStatus)
     local waitT = 0
     while waitT < 8 do
         if #GetEnemies() > 0 then break end
-        task.wait(0.5)
-        waitT = waitT + 0.5
+        task.wait(0.5); waitT = waitT + 0.5
     end
 
     local enemies = GetEnemies()
@@ -248,10 +221,7 @@ local function AttackCurrentMap(onStatus)
         if onStatus then onStatus("⚠ Tidak ada musuh di map ini", false) end
         return
     end
-
-    if onStatus then
-        onStatus("⚔ " .. #enemies .. " musuh — mulai serang!", true)
-    end
+    if onStatus then onStatus("⚔ "..#enemies.." musuh — mulai serang!", true) end
 
     local timeout = 180
     local elapsed = 0
@@ -259,26 +229,17 @@ local function AttackCurrentMap(onStatus)
     while MassAttack.running and elapsed < timeout do
         local alive = {}
         for _, e in ipairs(GetEnemies()) do
-            if not IsEnemyDead(e) then
-                table.insert(alive, e)
-            end
+            if not IsEnemyDead(e) then table.insert(alive, e) end
         end
 
         if #alive == 0 then
-            if onStatus then
-                onStatus("🔄 Semua mati, cek respawn...", true)
-            end
+            if onStatus then onStatus("🔄 Semua mati, cek respawn...", true) end
             task.wait(2)
-
             local respawn = GetEnemies()
-            if #respawn == 0 then
-                break
+            if #respawn == 0 then break
             else
-                deadGuids      = {}
-                collectedGuids = {}
-                if onStatus then
-                    onStatus("♻ Respawn! " .. #respawn .. " musuh baru", true)
-                end
+                deadGuids = {}; collectedGuids = {}
+                if onStatus then onStatus("♻ Respawn! "..#respawn.." musuh baru", true) end
                 continue
             end
         end
@@ -287,26 +248,13 @@ local function AttackCurrentMap(onStatus)
             if not MassAttack.running then break end
             local hrp = e.model:FindFirstChild("HumanoidRootPart")
             if hrp then
-                pcall(function()
-                    RE_Click:InvokeServer({
-                        enemyGuid = e.guid,
-                        enemyPos  = hrp.Position,
-                    })
-                end)
-                pcall(function()
-                    RE_Attack:FireServer({
-                        attackEnemyGUID = e.guid,
-                    })
-                end)
+                pcall(function() RE_Click:InvokeServer({ enemyGuid=e.guid, enemyPos=hrp.Position }) end)
+                pcall(function() RE_Attack:FireServer({ attackEnemyGUID=e.guid }) end)
             end
         end
 
         if onStatus then
-            onStatus(
-                "⚔ "..#alive.." hidup  ✅ "..MassAttack.killed.." mati"
-                .."  💎 "..MassAttack.collected.." collect",
-                true
-            )
+            onStatus("⚔ "..#alive.." hidup  ✅ "..MassAttack.killed.." mati  💎 "..MassAttack.collected.." collect", true)
         end
 
         task.wait(MassAttack.spamDelay)
@@ -314,63 +262,36 @@ local function AttackCurrentMap(onStatus)
     end
 end
 
--- ── MAP ROTATION ─────────────────────────────────────
-local MapRotation = {
-    selected  = {},
-    delay     = 5,
-    mapIndex  = 1,
-}
+local MapRotation = { selected={}, delay=5, mapIndex=1 }
 
 local function StartMassAttack(onStatus, onToggle)
     if MassAttack.running then return end
     MassAttack.running   = true
     MassAttack.killed    = 0
     MassAttack.collected = 0
-
     StartDestroyerWorker()
-
     MassAttack.thread = task.spawn(function()
         while MassAttack.running do
             local selectedMaps = MapRotation.selected
-
             if #selectedMaps > 0 then
                 for _, mapIdx in ipairs(selectedMaps) do
                     if not MassAttack.running then break end
-
                     local mapData = MAPS[mapIdx]
-                    if onStatus then
-                        onStatus(
-                            "🗺 Pindah ke " .. mapData.name .. "...",
-                            true
-                        )
-                    end
-
+                    if onStatus then onStatus("🗺 Pindah ke "..mapData.name.."...", true) end
                     TeleportToMap(mapData)
                     task.wait(MapRotation.delay)
-
                     AttackCurrentMap(onStatus)
-
-                    if onStatus then
-                        onStatus(
-                            "✅ " .. mapData.name .. " selesai!"
-                            .."  💎 "..MassAttack.collected.." collect",
-                            true
-                        )
-                    end
-
+                    if onStatus then onStatus("✅ "..mapData.name.." selesai!  💎 "..MassAttack.collected.." collect", true) end
                     task.wait(0.5)
                 end
             else
                 AttackCurrentMap(onStatus)
                 if MassAttack.running then
-                    if onStatus then
-                        onStatus("🔄 Ronde selesai, ulang...", true)
-                    end
+                    if onStatus then onStatus("🔄 Ronde selesai, ulang...", true) end
                     task.wait(1)
                 end
             end
         end
-
         MassAttack.running = false
         if onToggle then onToggle(false) end
     end)
@@ -384,9 +305,7 @@ local function StopMassAttack()
     end
 end
 
-local function StopMapRotation()
-    StopMassAttack()
-end
+local function StopMapRotation() StopMassAttack() end
 
 -- =====================================================
 -- CLEANUP OLD GUI
@@ -403,6 +322,144 @@ ScreenGui.Name           = "ASH_Hub"
 ScreenGui.ResetOnSpawn   = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent         = LocalPlayer.PlayerGui
+
+-- =====================================================
+-- FLOATING TOGGLE BUTTON (SELALU TAMPIL)
+-- Hanya muncul di Smartphone & Tablet
+-- =====================================================
+local guiVisible = true  -- status GUI: tampil atau tidak
+
+if isSmartphone or isTablet then
+    local floatSize = isSmartphone and 48 or 56
+
+    local FloatBtn = Instance.new("TextButton", ScreenGui)
+    FloatBtn.Name             = "FloatToggle"
+    FloatBtn.Size             = UDim2.new(0, floatSize, 0, floatSize)
+    -- Posisi pojok kiri bawah, sedikit naik dari tepi
+    FloatBtn.Position         = UDim2.new(0, 14, 1, -(floatSize + 80))
+    FloatBtn.BackgroundColor3 = Color3.fromRGB(85, 28, 185)
+    FloatBtn.BorderSizePixel  = 0
+    FloatBtn.Text             = "⚔"
+    FloatBtn.TextSize         = isSmartphone and 22 or 26
+    FloatBtn.Font             = Enum.Font.GothamBold
+    FloatBtn.TextColor3       = Color3.fromRGB(255, 215, 55)
+    FloatBtn.AutoButtonColor  = false
+    FloatBtn.ZIndex           = 20
+    Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
+
+    -- Gradient & stroke pada floating button
+    local fbGrad = Instance.new("UIGradient", FloatBtn)
+    fbGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(130, 48, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(68,  14, 165)),
+    })
+    fbGrad.Rotation = 135
+
+    local fbStroke = Instance.new("UIStroke", FloatBtn)
+    fbStroke.Color       = Color3.fromRGB(165, 85, 255)
+    fbStroke.Thickness   = 2
+    fbStroke.Transparency= 0.2
+
+    -- Dot indikator status (hijau = running, abu = standby)
+    local dotSz = 10
+    local StatusDot = Instance.new("Frame", FloatBtn)
+    StatusDot.Name             = "StatusDot"
+    StatusDot.Size             = UDim2.new(0, dotSz, 0, dotSz)
+    StatusDot.Position         = UDim2.new(1, -dotSz, 0, 0)
+    StatusDot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    StatusDot.BorderSizePixel  = 0
+    StatusDot.ZIndex           = 21
+    Instance.new("UICorner", StatusDot).CornerRadius = UDim.new(1, 0)
+
+    -- ── DRAG FLOATING BUTTON ──────────────────────────
+    do
+        local fbDrag, fbStart, fbStartPos = false, nil, nil
+        local movedEnough = false
+
+        FloatBtn.InputBegan:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.Touch
+            or i.UserInputType == Enum.UserInputType.MouseButton1 then
+                fbDrag      = true
+                movedEnough = false
+                fbStart     = i.Position
+                fbStartPos  = FloatBtn.Position
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(i)
+            if fbDrag and (i.UserInputType == Enum.UserInputType.Touch
+                        or i.UserInputType == Enum.UserInputType.MouseMovement) then
+                local delta = i.Position - fbStart
+                if math.abs(delta.X) > 5 or math.abs(delta.Y) > 5 then
+                    movedEnough = true
+                end
+                FloatBtn.Position = UDim2.new(
+                    fbStartPos.X.Scale, fbStartPos.X.Offset + delta.X,
+                    fbStartPos.Y.Scale, fbStartPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+
+        UserInputService.InputEnded:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.Touch
+            or i.UserInputType == Enum.UserInputType.MouseButton1 then
+                fbDrag = false
+            end
+        end)
+
+        -- Tap: hanya toggle jika tidak di-drag
+        FloatBtn.MouseButton1Click:Connect(function()
+            if movedEnough then return end  -- abaikan jika sedang drag
+
+            guiVisible = not guiVisible
+
+            -- Animasi pulse saat tap
+            TweenService:Create(FloatBtn, TweenInfo.new(0.08), {
+                Size = UDim2.new(0, floatSize - 6, 0, floatSize - 6)
+            }):Play()
+            task.wait(0.08)
+            TweenService:Create(FloatBtn, TweenInfo.new(0.12), {
+                Size = UDim2.new(0, floatSize, 0, floatSize)
+            }):Play()
+
+            -- Show / Hide main GUI dengan tween
+            if guiVisible then
+                Win.Visible = true
+                TweenService:Create(Win, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+                }):Play()
+                FloatBtn.Text = "⚔"
+                fbGrad.Color  = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(130, 48, 255)),
+                    ColorSequenceKeypoint.new(1, Color3.fromRGB(68,  14, 165)),
+                })
+            else
+                TweenService:Create(Win, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                    Size = UDim2.new(0, WINDOW_WIDTH, 0, 0)
+                }):Play()
+                task.delay(0.18, function() Win.Visible = false end)
+                FloatBtn.Text = "▶"
+                fbGrad.Color  = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(68, 22, 140)),
+                    ColorSequenceKeypoint.new(1, Color3.fromRGB(36,  8,  80)),
+                })
+            end
+        end)
+    end
+
+    -- Update status dot dari MassAttack
+    task.spawn(function()
+        while ScreenGui.Parent do
+            local isRunning = MassAttack.running
+            TweenService:Create(StatusDot, TweenInfo.new(0.3), {
+                BackgroundColor3 = isRunning
+                    and Color3.fromRGB(52, 248, 95)
+                    or  Color3.fromRGB(80, 80, 80)
+            }):Play()
+            task.wait(1.5)
+        end
+    end)
+end
 
 -- =====================================================
 -- MAIN WINDOW - RESPONSIVE
@@ -430,7 +487,7 @@ winGrad.Color = ColorSequence.new({
 winGrad.Rotation = 145
 
 -- =====================================================
--- TITLE BAR - RESPONSIVE
+-- TITLE BAR
 -- =====================================================
 local TBar = Instance.new("Frame", Win)
 TBar.Size             = UDim2.new(1, 0, 0, TITLE_BAR_HEIGHT)
@@ -476,7 +533,7 @@ local tSub = Instance.new("TextLabel", TBar)
 tSub.Size                = UDim2.new(0, WINDOW_WIDTH-100, 0, math.max(10, 13*SCALE))
 tSub.Position            = UDim2.new(0, math.max(35, 48*SCALE), 0, math.max(20, 28*SCALE))
 tSub.BackgroundTransparency = 1
-tSub.Text                = "AUTOMATION HUB  •  v2.0"
+tSub.Text                = "AUTOMATION HUB  •  v2.1"
 tSub.TextSize            = scaleFontSize(8)
 tSub.Font                = Enum.Font.Gotham
 tSub.TextColor3          = Color3.fromRGB(145, 85, 255)
@@ -499,7 +556,11 @@ local function WinBtn(xOff, col, txt)
 end
 
 local CloseBtn = WinBtn(-math.max(20, 30*SCALE), Color3.fromRGB(170, 35, 58), "✕")
-local MinBtn   = WinBtn(-math.max(48, 60*SCALE), Color3.fromRGB(40, 22, 75),  "—")
+-- Tombol minimize hanya di Desktop (di mobile pakai floating button)
+local MinBtn   = nil
+if isDesktop then
+    MinBtn = WinBtn(-math.max(48, 60*SCALE), Color3.fromRGB(40, 22, 75), "—")
+end
 
 CloseBtn.MouseButton1Click:Connect(function()
     StopMassAttack()
@@ -508,7 +569,7 @@ CloseBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =====================================================
--- SIDEBAR - RESPONSIVE
+-- SIDEBAR
 -- =====================================================
 local Sidebar = Instance.new("Frame", Win)
 Sidebar.Size             = UDim2.new(0, SIDEBAR_WIDTH, 1, -TITLE_BAR_HEIGHT)
@@ -516,7 +577,6 @@ Sidebar.Position         = UDim2.new(0, 0, 0, TITLE_BAR_HEIGHT)
 Sidebar.BackgroundColor3 = Color3.fromRGB(10, 6, 24)
 Sidebar.BorderSizePixel  = 0
 Sidebar.ClipsDescendants = true
-
 Instance.new("UIStroke", Sidebar).Color = Color3.fromRGB(42, 16, 80)
 
 local divLine = Instance.new("Frame", Win)
@@ -526,11 +586,11 @@ divLine.BackgroundColor3 = Color3.fromRGB(42, 16, 80)
 divLine.BorderSizePixel  = 0
 
 -- =====================================================
--- CONTENT AREA - SCROLLABLE
+-- CONTENT AREA
 -- =====================================================
 local ContentArea = Instance.new("ScrollingFrame", Win)
-ContentArea.Size             = UDim2.new(1, -SIDEBAR_WIDTH, 1, -TITLE_BAR_HEIGHT)
-ContentArea.Position         = UDim2.new(0, SIDEBAR_WIDTH, 0, TITLE_BAR_HEIGHT)
+ContentArea.Size                = UDim2.new(1, -SIDEBAR_WIDTH, 1, -TITLE_BAR_HEIGHT)
+ContentArea.Position            = UDim2.new(0, SIDEBAR_WIDTH, 0, TITLE_BAR_HEIGHT)
 ContentArea.BackgroundTransparency = 1
 ContentArea.ScrollBarThickness  = math.max(3, 4*SCALE)
 ContentArea.ScrollBarImageColor3= Color3.fromRGB(90, 38, 185)
@@ -551,12 +611,10 @@ local function NewPanel(tag)
     p.Size             = UDim2.new(1, 0, 0, 0)
     p.BackgroundTransparency = 1
     p.Visible          = false
-    p.LayoutOrder       = 0
-    
+    p.LayoutOrder      = 0
     local layout = Instance.new("UIListLayout", p)
     layout.SortOrder   = Enum.SortOrder.LayoutOrder
     layout.Padding     = UDim.new(0, math.max(4, 8*SCALE))
-    
     Panels[tag]        = p
     return p
 end
@@ -564,11 +622,10 @@ end
 -- ── UI HELPERS ─────────────────────────────────────
 local function MakeLabel(parent, txt, sizeMultiplier, col)
     local l = Instance.new("TextLabel", parent)
-    local fontSize = scaleFontSize(10 * (sizeMultiplier or 1))
     l.Size              = UDim2.new(1, 0, 0, math.max(16, 22*SCALE))
     l.BackgroundTransparency = 1
     l.Text              = txt
-    l.TextSize          = fontSize
+    l.TextSize          = scaleFontSize(10 * (sizeMultiplier or 1))
     l.Font              = Enum.Font.GothamBold
     l.TextColor3        = col or Color3.fromRGB(160, 110, 255)
     l.TextXAlignment    = Enum.TextXAlignment.Left
@@ -594,171 +651,115 @@ local function MakeBigBtn(parent, emoji, mainTxt, subTxt)
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, math.max(9, 13*SCALE))
 
     local bg = Instance.new("UIGradient", btn)
-    bg.Color    = ColorSequence.new({
+    bg.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(130, 48, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(68, 14, 165)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(68,  14, 165)),
     })
     bg.Rotation = 135
 
     local bs = Instance.new("UIStroke", btn)
-    bs.Color        = Color3.fromRGB(165, 85, 255)
-    bs.Thickness    = 1.5
-    bs.Transparency = 0.32
+    bs.Color = Color3.fromRGB(165, 85, 255); bs.Thickness = 1.5; bs.Transparency = 0.32
 
     local em = Instance.new("TextLabel", btn)
-    local emojiSize = math.max(18, 26*SCALE)
-    em.Size               = UDim2.new(0, emojiSize+8, 1, 0)
-    em.Position           = UDim2.new(0, math.max(6, 12*SCALE), 0, 0)
-    em.BackgroundTransparency = 1
-    em.Text               = emoji
-    em.TextSize           = emojiSize
-    em.Font               = Enum.Font.GothamBold
-    em.TextColor3         = Color3.fromRGB(255, 215, 55)
+    local emojiSz = math.max(18, 26*SCALE)
+    em.Size = UDim2.new(0, emojiSz+8, 1, 0); em.Position = UDim2.new(0, math.max(6,12*SCALE), 0, 0)
+    em.BackgroundTransparency = 1; em.Text = emoji; em.TextSize = emojiSz
+    em.Font = Enum.Font.GothamBold; em.TextColor3 = Color3.fromRGB(255, 215, 55)
 
     local ml = Instance.new("TextLabel", btn)
-    ml.Size              = UDim2.new(1, -math.max(40, 70*SCALE), 0, math.max(14, 20*SCALE))
-    ml.Position          = UDim2.new(0, math.max(32, 56*SCALE), 0.5, -math.max(16, 20*SCALE))
-    ml.BackgroundTransparency = 1
-    ml.Text              = mainTxt
-    ml.TextSize          = scaleFontSize(13)
-    ml.Font              = Enum.Font.GothamBold
-    ml.TextColor3        = Color3.fromRGB(255, 255, 255)
-    ml.TextXAlignment    = Enum.TextXAlignment.Left
-    ml.TextWrapped       = true
+    ml.Size = UDim2.new(1, -math.max(40,70*SCALE), 0, math.max(14,20*SCALE))
+    ml.Position = UDim2.new(0, math.max(32,56*SCALE), 0.5, -math.max(16,20*SCALE))
+    ml.BackgroundTransparency = 1; ml.Text = mainTxt; ml.TextSize = scaleFontSize(13)
+    ml.Font = Enum.Font.GothamBold; ml.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ml.TextXAlignment = Enum.TextXAlignment.Left; ml.TextWrapped = true
 
     local sl = Instance.new("TextLabel", btn)
-    sl.Size              = UDim2.new(1, -math.max(40, 70*SCALE), 0, math.max(8, 12*SCALE))
-    sl.Position          = UDim2.new(0, math.max(32, 56*SCALE), 0.5, 2)
-    sl.BackgroundTransparency = 1
-    sl.Text              = subTxt
-    sl.TextSize          = scaleFontSize(8)
-    sl.Font              = Enum.Font.Gotham
-    sl.TextColor3        = Color3.fromRGB(195, 148, 255)
-    sl.TextXAlignment    = Enum.TextXAlignment.Left
-    sl.TextWrapped       = true
+    sl.Size = UDim2.new(1, -math.max(40,70*SCALE), 0, math.max(8,12*SCALE))
+    sl.Position = UDim2.new(0, math.max(32,56*SCALE), 0.5, 2)
+    sl.BackgroundTransparency = 1; sl.Text = subTxt; sl.TextSize = scaleFontSize(8)
+    sl.Font = Enum.Font.Gotham; sl.TextColor3 = Color3.fromRGB(195, 148, 255)
+    sl.TextXAlignment = Enum.TextXAlignment.Left; sl.TextWrapped = true
 
     return btn, bg, ml, sl, em
 end
 
 local function MakeComingSoon(parent, featureName)
     local f = Instance.new("Frame", parent)
-    f.Size             = UDim2.new(1, 0, 0, math.max(120, 160*SCALE))
-    f.BackgroundColor3 = Color3.fromRGB(11, 7, 26)
-    f.BorderSizePixel  = 0
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, math.max(10, 14*SCALE))
-    local fs = Instance.new("UIStroke", f)
-    fs.Color = Color3.fromRGB(42, 16, 80); fs.Thickness = 1
+    f.Size = UDim2.new(1, 0, 0, math.max(120, 160*SCALE))
+    f.BackgroundColor3 = Color3.fromRGB(11, 7, 26); f.BorderSizePixel = 0
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, math.max(10,14*SCALE))
+    local fs = Instance.new("UIStroke", f); fs.Color = Color3.fromRGB(42,16,80); fs.Thickness = 1
 
     local ic = Instance.new("TextLabel", f)
-    ic.Size               = UDim2.new(1, 0, 0, math.max(35, 55*SCALE))
-    ic.Position           = UDim2.new(0, 0, 0, math.max(8, 20*SCALE))
-    ic.BackgroundTransparency = 1
-    ic.Text               = "🔒"
-    ic.TextSize           = math.max(20, 36*SCALE)
-    ic.Font               = Enum.Font.GothamBold
-    ic.TextColor3         = Color3.fromRGB(80, 55, 130)
+    ic.Size = UDim2.new(1, 0, 0, math.max(35,55*SCALE)); ic.Position = UDim2.new(0, 0, 0, math.max(8,20*SCALE))
+    ic.BackgroundTransparency = 1; ic.Text = "🔒"; ic.TextSize = math.max(20,36*SCALE)
+    ic.Font = Enum.Font.GothamBold; ic.TextColor3 = Color3.fromRGB(80,55,130)
 
     local tl = Instance.new("TextLabel", f)
-    tl.Size               = UDim2.new(1, 0, 0, math.max(14, 20*SCALE))
-    tl.Position           = UDim2.new(0, 0, 0, math.max(50, 80*SCALE))
-    tl.BackgroundTransparency = 1
-    tl.Text               = "COMING SOON"
-    tl.TextSize           = scaleFontSize(11)
-    tl.Font               = Enum.Font.GothamBold
-    tl.TextColor3         = Color3.fromRGB(140, 90, 230)
-    tl.TextXAlignment     = Enum.TextXAlignment.Center
+    tl.Size = UDim2.new(1,0,0,math.max(14,20*SCALE)); tl.Position = UDim2.new(0,0,0,math.max(50,80*SCALE))
+    tl.BackgroundTransparency = 1; tl.Text = "COMING SOON"; tl.TextSize = scaleFontSize(11)
+    tl.Font = Enum.Font.GothamBold; tl.TextColor3 = Color3.fromRGB(140,90,230)
+    tl.TextXAlignment = Enum.TextXAlignment.Center
 
     local sl = Instance.new("TextLabel", f)
-    sl.Size               = UDim2.new(1, 0, 0, math.max(28, 36*SCALE))
-    sl.Position           = UDim2.new(0, 0, 0, math.max(76, 106*SCALE))
-    sl.BackgroundTransparency = 1
-    sl.Text               = featureName .. " akan aktif setelah\ndata Simple Spy dikumpulkan"
-    sl.TextSize           = scaleFontSize(8)
-    sl.Font               = Enum.Font.Gotham
-    sl.TextColor3         = Color3.fromRGB(90, 66, 130)
-    sl.TextXAlignment     = Enum.TextXAlignment.Center
-    sl.TextWrapped        = true
+    sl.Size = UDim2.new(1,0,0,math.max(28,36*SCALE)); sl.Position = UDim2.new(0,0,0,math.max(76,106*SCALE))
+    sl.BackgroundTransparency = 1; sl.Text = featureName.." akan aktif setelah\ndata Simple Spy dikumpulkan"
+    sl.TextSize = scaleFontSize(8); sl.Font = Enum.Font.Gotham
+    sl.TextColor3 = Color3.fromRGB(90,66,130)
+    sl.TextXAlignment = Enum.TextXAlignment.Center; sl.TextWrapped = true
 end
 
 -- =====================================================
 -- PANEL: MASS ATTACK
 -- =====================================================
 local PanelMass = NewPanel("mass")
-
 MakeLabel(PanelMass, "⚔   MASS ATTACK", 1.1, Color3.fromRGB(160, 110, 255))
-MakeLabel(PanelMass, "Kirim ClickEnemy ke semua musuh di map secara otomatis", 0.9, Color3.fromRGB(100, 78, 145))
+MakeLabel(PanelMass, "Kirim ClickEnemy ke semua musuh di map", 0.9, Color3.fromRGB(100, 78, 145))
 MakeSep(PanelMass)
 
--- status bar
 local MassStatBar = Instance.new("Frame", PanelMass)
 MassStatBar.Size             = UDim2.new(1, 0, 0, math.max(28, 36*SCALE))
-MassStatBar.BackgroundColor3 = Color3.fromRGB(11, 6, 26)
-MassStatBar.BorderSizePixel  = 0
-Instance.new("UICorner", MassStatBar).CornerRadius = UDim.new(0, math.max(7, 9*SCALE))
-local msbs = Instance.new("UIStroke", MassStatBar)
-msbs.Color = Color3.fromRGB(42, 16, 80); msbs.Thickness = 1
+MassStatBar.BackgroundColor3 = Color3.fromRGB(11, 6, 26); MassStatBar.BorderSizePixel = 0
+Instance.new("UICorner", MassStatBar).CornerRadius = UDim.new(0, math.max(7,9*SCALE))
+local msbs = Instance.new("UIStroke", MassStatBar); msbs.Color = Color3.fromRGB(42,16,80); msbs.Thickness = 1
 
-local MassStatDot = Instance.new("Frame", MassStatBar)
 local dotSize = math.max(6, 8*SCALE)
-MassStatDot.Size             = UDim2.new(0, dotSize, 0, dotSize)
-MassStatDot.Position         = UDim2.new(0, math.max(8, 10*SCALE), 0.5, -dotSize/2)
-MassStatDot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-MassStatDot.BorderSizePixel  = 0
+local MassStatDot = Instance.new("Frame", MassStatBar)
+MassStatDot.Size = UDim2.new(0, dotSize, 0, dotSize); MassStatDot.Position = UDim2.new(0, math.max(8,10*SCALE), 0.5, -dotSize/2)
+MassStatDot.BackgroundColor3 = Color3.fromRGB(80,80,80); MassStatDot.BorderSizePixel = 0
 Instance.new("UICorner", MassStatDot).CornerRadius = UDim.new(1, 0)
 
 local MassStatTxt = Instance.new("TextLabel", MassStatBar)
-MassStatTxt.Size              = UDim2.new(1, -math.max(60, 80*SCALE), 1, 0)
-MassStatTxt.Position          = UDim2.new(0, math.max(18, 24*SCALE), 0, 0)
-MassStatTxt.BackgroundTransparency = 1
-MassStatTxt.Text              = "STANDBY — Tekan START"
-MassStatTxt.TextSize          = scaleFontSize(8)
-MassStatTxt.Font              = Enum.Font.Gotham
-MassStatTxt.TextColor3        = Color3.fromRGB(108, 96, 138)
-MassStatTxt.TextXAlignment    = Enum.TextXAlignment.Left
-MassStatTxt.TextTruncate      = Enum.TextTruncate.AtEnd
+MassStatTxt.Size = UDim2.new(1, -math.max(60,80*SCALE), 1, 0); MassStatTxt.Position = UDim2.new(0, math.max(18,24*SCALE), 0, 0)
+MassStatTxt.BackgroundTransparency = 1; MassStatTxt.Text = "STANDBY — Tekan START"
+MassStatTxt.TextSize = scaleFontSize(8); MassStatTxt.Font = Enum.Font.Gotham
+MassStatTxt.TextColor3 = Color3.fromRGB(108,96,138); MassStatTxt.TextXAlignment = Enum.TextXAlignment.Left
+MassStatTxt.TextTruncate = Enum.TextTruncate.AtEnd
 
 local MassKillTxt = Instance.new("TextLabel", MassStatBar)
-MassKillTxt.Size              = UDim2.new(0, math.max(50, 80*SCALE), 1, 0)
-MassKillTxt.Position          = UDim2.new(1, -math.max(54, 84*SCALE), 0, 0)
-MassKillTxt.BackgroundTransparency = 1
-MassKillTxt.Text              = "0 kills"
-MassKillTxt.TextSize          = scaleFontSize(7)
-MassKillTxt.Font              = Enum.Font.GothamBold
-MassKillTxt.TextColor3        = Color3.fromRGB(140, 90, 220)
-MassKillTxt.TextXAlignment    = Enum.TextXAlignment.Right
+MassKillTxt.Size = UDim2.new(0, math.max(50,80*SCALE), 1, 0); MassKillTxt.Position = UDim2.new(1, -math.max(54,84*SCALE), 0, 0)
+MassKillTxt.BackgroundTransparency = 1; MassKillTxt.Text = "0 kills"
+MassKillTxt.TextSize = scaleFontSize(7); MassKillTxt.Font = Enum.Font.GothamBold
+MassKillTxt.TextColor3 = Color3.fromRGB(140,90,220); MassKillTxt.TextXAlignment = Enum.TextXAlignment.Right
 
--- enemy count live
 local EnemyCountBar = Instance.new("Frame", PanelMass)
-EnemyCountBar.Size             = UDim2.new(1, 0, 0, math.max(24, 32*SCALE))
-EnemyCountBar.BackgroundColor3 = Color3.fromRGB(9, 5, 20)
-EnemyCountBar.BorderSizePixel  = 0
-Instance.new("UICorner", EnemyCountBar).CornerRadius = UDim.new(0, math.max(7, 9*SCALE))
-local ecbs = Instance.new("UIStroke", EnemyCountBar)
-ecbs.Color = Color3.fromRGB(42, 16, 80); ecbs.Thickness = 1
+EnemyCountBar.Size = UDim2.new(1, 0, 0, math.max(24,32*SCALE)); EnemyCountBar.BackgroundColor3 = Color3.fromRGB(9,5,20)
+EnemyCountBar.BorderSizePixel = 0; Instance.new("UICorner", EnemyCountBar).CornerRadius = UDim.new(0, math.max(7,9*SCALE))
+local ecbs = Instance.new("UIStroke", EnemyCountBar); ecbs.Color = Color3.fromRGB(42,16,80); ecbs.Thickness = 1
 
 local EnemyCountTxt = Instance.new("TextLabel", EnemyCountBar)
-EnemyCountTxt.Size              = UDim2.new(1, -math.max(8, 16*SCALE), 1, 0)
-EnemyCountTxt.Position          = UDim2.new(0, math.max(4, 8*SCALE), 0, 0)
-EnemyCountTxt.BackgroundTransparency = 1
-EnemyCountTxt.Text              = "🔍 Scanning..."
-EnemyCountTxt.TextSize          = scaleFontSize(8)
-EnemyCountTxt.Font              = Enum.Font.Gotham
-EnemyCountTxt.TextColor3        = Color3.fromRGB(130, 100, 190)
-EnemyCountTxt.TextXAlignment    = Enum.TextXAlignment.Left
+EnemyCountTxt.Size = UDim2.new(1, -math.max(8,16*SCALE), 1, 0); EnemyCountTxt.Position = UDim2.new(0, math.max(4,8*SCALE), 0, 0)
+EnemyCountTxt.BackgroundTransparency = 1; EnemyCountTxt.Text = "🔍 Scanning..."
+EnemyCountTxt.TextSize = scaleFontSize(8); EnemyCountTxt.Font = Enum.Font.Gotham
+EnemyCountTxt.TextColor3 = Color3.fromRGB(130,100,190); EnemyCountTxt.TextXAlignment = Enum.TextXAlignment.Left
 
--- settings
 MakeSep(PanelMass)
 MakeLabel(PanelMass, "⚙   SETTINGS", 0.9, Color3.fromRGB(145, 100, 225))
 
--- delay
 local DelayLbl = Instance.new("TextLabel", PanelMass)
-DelayLbl.Size              = UDim2.new(1, 0, 0, math.max(16, 22*SCALE))
-DelayLbl.BackgroundTransparency = 1
-DelayLbl.Text              = "Delay attack per hit:"
-DelayLbl.TextSize          = scaleFontSize(8)
-DelayLbl.Font              = Enum.Font.Gotham
-DelayLbl.TextColor3        = Color3.fromRGB(130, 100, 175)
-DelayLbl.TextXAlignment    = Enum.TextXAlignment.Left
+DelayLbl.Size = UDim2.new(1,0,0,math.max(16,22*SCALE)); DelayLbl.BackgroundTransparency = 1
+DelayLbl.Text = "Delay attack per hit:"; DelayLbl.TextSize = scaleFontSize(8); DelayLbl.Font = Enum.Font.Gotham
+DelayLbl.TextColor3 = Color3.fromRGB(130,100,175); DelayLbl.TextXAlignment = Enum.TextXAlignment.Left
 
 local delayOptions = {0.05, 0.1, 0.2, 0.3, 0.5}
 local delayLabels  = {"0.05s","0.1s","0.2s","0.3s","0.5s"}
@@ -767,27 +768,21 @@ MassAttack.spamDelay = delayOptions[delaySelIdx]
 local delayBtnRefs = {}
 
 local delayRow = Instance.new("Frame", PanelMass)
-delayRow.Size             = UDim2.new(1, 0, 0, math.max(18, 24*SCALE))
-delayRow.BackgroundTransparency = 1
-local dL = Instance.new("UIListLayout", delayRow)
-dL.FillDirection = Enum.FillDirection.Horizontal
-dL.Padding       = UDim.new(0, math.max(2, 4*SCALE))
+delayRow.Size = UDim2.new(1, 0, 0, math.max(18,24*SCALE)); delayRow.BackgroundTransparency = 1
+local dL = Instance.new("UIListLayout", delayRow); dL.FillDirection = Enum.FillDirection.Horizontal
+dL.Padding = UDim.new(0, math.max(2,4*SCALE))
 
 for di, sec in ipairs(delayOptions) do
     local db = Instance.new("TextButton", delayRow)
-    db.Size             = UDim2.new(0.2, -math.max(1, 3*SCALE), 1, 0)
+    db.Size = UDim2.new(0.2, -math.max(1,3*SCALE), 1, 0)
     db.BackgroundColor3 = di==delaySelIdx and Color3.fromRGB(78,26,172) or Color3.fromRGB(16,9,34)
-    db.BorderSizePixel  = 0
-    db.Text             = delayLabels[di]
-    db.TextSize         = scaleFontSize(7)
-    db.Font             = Enum.Font.GothamBold
-    db.TextColor3       = di==delaySelIdx and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,160)
-    db.AutoButtonColor  = false
-    Instance.new("UICorner", db).CornerRadius = UDim.new(0, 4)
+    db.BorderSizePixel = 0; db.Text = delayLabels[di]; db.TextSize = scaleFontSize(7)
+    db.Font = Enum.Font.GothamBold
+    db.TextColor3 = di==delaySelIdx and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,160)
+    db.AutoButtonColor = false; Instance.new("UICorner", db).CornerRadius = UDim.new(0, 4)
     delayBtnRefs[di] = db
     db.MouseButton1Click:Connect(function()
-        delaySelIdx          = di
-        MassAttack.spamDelay = sec
+        delaySelIdx = di; MassAttack.spamDelay = sec
         for j, ref in ipairs(delayBtnRefs) do
             TweenService:Create(ref, TweenInfo.new(0.14), {
                 BackgroundColor3 = j==di and Color3.fromRGB(78,26,172) or Color3.fromRGB(16,9,34)
@@ -797,94 +792,67 @@ for di, sec in ipairs(delayOptions) do
     end)
 end
 
--- loop toggle
+-- Loop toggle
 local LoopLbl = Instance.new("TextLabel", PanelMass)
-LoopLbl.Size              = UDim2.new(1, 0, 0, math.max(16, 24*SCALE))
-LoopLbl.BackgroundTransparency = 1
-LoopLbl.Text              = "🔁  Loop terus (respawn)"
-LoopLbl.TextSize          = scaleFontSize(8)
-LoopLbl.Font              = Enum.Font.Gotham
-LoopLbl.TextColor3        = Color3.fromRGB(140, 108, 195)
-LoopLbl.TextXAlignment    = Enum.TextXAlignment.Left
+LoopLbl.Size = UDim2.new(1,0,0,math.max(16,24*SCALE)); LoopLbl.BackgroundTransparency = 1
+LoopLbl.Text = "🔁  Loop terus (respawn)"; LoopLbl.TextSize = scaleFontSize(8); LoopLbl.Font = Enum.Font.Gotham
+LoopLbl.TextColor3 = Color3.fromRGB(140,108,195); LoopLbl.TextXAlignment = Enum.TextXAlignment.Left
 
 local loopContainer = Instance.new("Frame", PanelMass)
-loopContainer.Size = UDim2.new(1, 0, 0, math.max(18, 24*SCALE))
-loopContainer.BackgroundTransparency = 1
+loopContainer.Size = UDim2.new(1,0,0,math.max(18,24*SCALE)); loopContainer.BackgroundTransparency = 1
 
-local LoopPill = Instance.new("TextButton", loopContainer)
 local pillSize = math.max(16, 22*SCALE)
-LoopPill.Size             = UDim2.new(0, pillSize*2, 0, pillSize)
-LoopPill.Position         = UDim2.new(1, -pillSize*2-math.max(4, 8*SCALE), 0.5, -pillSize/2)
-LoopPill.BackgroundColor3 = Color3.fromRGB(72, 28, 158)
-LoopPill.BorderSizePixel  = 0
-LoopPill.Text             = ""
-LoopPill.AutoButtonColor  = false
+local LoopPill = Instance.new("TextButton", loopContainer)
+LoopPill.Size = UDim2.new(0, pillSize*2, 0, pillSize); LoopPill.Position = UDim2.new(1, -pillSize*2-math.max(4,8*SCALE), 0.5, -pillSize/2)
+LoopPill.BackgroundColor3 = Color3.fromRGB(72,28,158); LoopPill.BorderSizePixel = 0; LoopPill.Text = ""; LoopPill.AutoButtonColor = false
 Instance.new("UICorner", LoopPill).CornerRadius = UDim.new(1, 0)
 
 local LoopKnob = Instance.new("Frame", LoopPill)
-LoopKnob.Size             = UDim2.new(0, pillSize-4, 0, pillSize-4)
-LoopKnob.Position         = UDim2.new(1, -pillSize+2, 0.5, -(pillSize-4)/2)
-LoopKnob.BackgroundColor3 = Color3.fromRGB(165, 88, 255)
-LoopKnob.BorderSizePixel  = 0
+LoopKnob.Size = UDim2.new(0, pillSize-4, 0, pillSize-4); LoopKnob.Position = UDim2.new(1, -pillSize+2, 0.5, -(pillSize-4)/2)
+LoopKnob.BackgroundColor3 = Color3.fromRGB(165,88,255); LoopKnob.BorderSizePixel = 0
 Instance.new("UICorner", LoopKnob).CornerRadius = UDim.new(1, 0)
 
 LoopPill.MouseButton1Click:Connect(function()
     MassAttack.looping = not MassAttack.looping
     local on = MassAttack.looping
-    TweenService:Create(LoopPill, TweenInfo.new(0.18), {
-        BackgroundColor3 = on and Color3.fromRGB(72,28,158) or Color3.fromRGB(28,14,50)
-    }):Play()
+    TweenService:Create(LoopPill, TweenInfo.new(0.18), { BackgroundColor3 = on and Color3.fromRGB(72,28,158) or Color3.fromRGB(28,14,50) }):Play()
     TweenService:Create(LoopKnob, TweenInfo.new(0.18), {
-        Position         = on and UDim2.new(1,-pillSize+2,0.5,-(pillSize-4)/2) or UDim2.new(0,2,0.5,-(pillSize-4)/2),
+        Position = on and UDim2.new(1,-pillSize+2,0.5,-(pillSize-4)/2) or UDim2.new(0,2,0.5,-(pillSize-4)/2),
         BackgroundColor3 = on and Color3.fromRGB(165,88,255) or Color3.fromRGB(80,55,110),
     }):Play()
 end)
 
--- auto collect toggle
+-- Auto collect toggle
 local CollectLbl = Instance.new("TextLabel", PanelMass)
-CollectLbl.Size              = UDim2.new(1, 0, 0, math.max(16, 24*SCALE))
-CollectLbl.BackgroundTransparency = 1
-CollectLbl.Text              = "💎  Auto Collect"
-CollectLbl.TextSize          = scaleFontSize(8)
-CollectLbl.Font              = Enum.Font.Gotham
-CollectLbl.TextColor3        = Color3.fromRGB(140, 108, 195)
-CollectLbl.TextXAlignment    = Enum.TextXAlignment.Left
+CollectLbl.Size = UDim2.new(1,0,0,math.max(16,24*SCALE)); CollectLbl.BackgroundTransparency = 1
+CollectLbl.Text = "💎  Auto Collect"; CollectLbl.TextSize = scaleFontSize(8); CollectLbl.Font = Enum.Font.Gotham
+CollectLbl.TextColor3 = Color3.fromRGB(140,108,195); CollectLbl.TextXAlignment = Enum.TextXAlignment.Left
 
 local collectContainer = Instance.new("Frame", PanelMass)
-collectContainer.Size = UDim2.new(1, 0, 0, math.max(18, 24*SCALE))
-collectContainer.BackgroundTransparency = 1
+collectContainer.Size = UDim2.new(1,0,0,math.max(18,24*SCALE)); collectContainer.BackgroundTransparency = 1
 
 local CollectPill = Instance.new("TextButton", collectContainer)
-CollectPill.Size             = UDim2.new(0, pillSize*2, 0, pillSize)
-CollectPill.Position         = UDim2.new(1, -pillSize*2-math.max(4, 8*SCALE), 0.5, -pillSize/2)
-CollectPill.BackgroundColor3 = Color3.fromRGB(72, 28, 158)
-CollectPill.BorderSizePixel  = 0
-CollectPill.Text             = ""
-CollectPill.AutoButtonColor  = false
+CollectPill.Size = UDim2.new(0, pillSize*2, 0, pillSize); CollectPill.Position = UDim2.new(1, -pillSize*2-math.max(4,8*SCALE), 0.5, -pillSize/2)
+CollectPill.BackgroundColor3 = Color3.fromRGB(72,28,158); CollectPill.BorderSizePixel = 0; CollectPill.Text = ""; CollectPill.AutoButtonColor = false
 Instance.new("UICorner", CollectPill).CornerRadius = UDim.new(0, 5)
 
 local CollectKnob = Instance.new("Frame", CollectPill)
-CollectKnob.Size             = UDim2.new(0, pillSize-4, 0, pillSize-4)
-CollectKnob.Position         = UDim2.new(1, -pillSize+2, 0.5, -(pillSize-4)/2)
-CollectKnob.BackgroundColor3 = Color3.fromRGB(255, 200, 55)
-CollectKnob.BorderSizePixel  = 0
+CollectKnob.Size = UDim2.new(0, pillSize-4, 0, pillSize-4); CollectKnob.Position = UDim2.new(1, -pillSize+2, 0.5, -(pillSize-4)/2)
+CollectKnob.BackgroundColor3 = Color3.fromRGB(255,200,55); CollectKnob.BorderSizePixel = 0
 Instance.new("UICorner", CollectKnob).CornerRadius = UDim.new(1, 0)
 
 CollectPill.MouseButton1Click:Connect(function()
     MassAttack.autoCollect = not MassAttack.autoCollect
     local on = MassAttack.autoCollect
-    TweenService:Create(CollectPill, TweenInfo.new(0.18), {
-        BackgroundColor3 = on and Color3.fromRGB(72,28,158) or Color3.fromRGB(28,14,50)
-    }):Play()
+    TweenService:Create(CollectPill, TweenInfo.new(0.18), { BackgroundColor3 = on and Color3.fromRGB(72,28,158) or Color3.fromRGB(28,14,50) }):Play()
     TweenService:Create(CollectKnob, TweenInfo.new(0.18), {
-        Position         = on and UDim2.new(1,-pillSize+2,0.5,-(pillSize-4)/2) or UDim2.new(0,2,0.5,-(pillSize-4)/2),
+        Position = on and UDim2.new(1,-pillSize+2,0.5,-(pillSize-4)/2) or UDim2.new(0,2,0.5,-(pillSize-4)/2),
         BackgroundColor3 = on and Color3.fromRGB(255,200,55) or Color3.fromRGB(80,55,110),
     }):Play()
 end)
 
 MakeSep(PanelMass)
 
--- START / STOP button
 local MassBtn, massBtnGrad, MassBtnLbl, MassBtnSub, MassBtnEmoji =
     MakeBigBtn(PanelMass, "⚔", "START MASS ATTACK", "CLICK ENEMY + COLLECT")
 
@@ -892,68 +860,43 @@ local massRunning = false
 
 local function SetMassUI(on)
     if on then
-        massBtnGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(195,42,42)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(135,16,16)),
-        })
-        MassBtnEmoji.Text  = "🛑"
-        MassBtnLbl.Text    = "STOP MASS ATTACK"
-        MassBtnSub.Text    = "KLIK UNTUK BERHENTI"
-        MassStatDot.BackgroundColor3 = Color3.fromRGB(52, 248, 95)
-        MassStatTxt.TextColor3       = Color3.fromRGB(52, 248, 95)
+        massBtnGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(195,42,42)), ColorSequenceKeypoint.new(1, Color3.fromRGB(135,16,16)) })
+        MassBtnEmoji.Text = "🛑"; MassBtnLbl.Text = "STOP MASS ATTACK"; MassBtnSub.Text = "KLIK UNTUK BERHENTI"
+        MassStatDot.BackgroundColor3 = Color3.fromRGB(52,248,95); MassStatTxt.TextColor3 = Color3.fromRGB(52,248,95)
     else
-        massBtnGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(130,48,255)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(68,14,165)),
-        })
-        MassBtnEmoji.Text  = "⚔"
-        MassBtnLbl.Text    = "START MASS ATTACK"
-        MassBtnSub.Text    = "CLICK ENEMY + COLLECT LOOP"
-        MassStatDot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-        MassStatTxt.TextColor3       = Color3.fromRGB(108, 96, 138)
-        MassStatTxt.Text             = "STANDBY — Tekan START"
+        massBtnGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(130,48,255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(68,14,165)) })
+        MassBtnEmoji.Text = "⚔"; MassBtnLbl.Text = "START MASS ATTACK"; MassBtnSub.Text = "CLICK ENEMY + COLLECT LOOP"
+        MassStatDot.BackgroundColor3 = Color3.fromRGB(80,80,80); MassStatTxt.TextColor3 = Color3.fromRGB(108,96,138)
+        MassStatTxt.Text = "STANDBY — Tekan START"
     end
 end
 
 MassBtn.MouseButton1Click:Connect(function()
-    TweenService:Create(MassBtn, TweenInfo.new(0.07), {Size=UDim2.new(1,0,0,math.max(44, 56*SCALE))}):Play()
+    TweenService:Create(MassBtn, TweenInfo.new(0.07), {Size=UDim2.new(1,0,0,math.max(44,56*SCALE))}):Play()
     task.wait(0.07)
-    TweenService:Create(MassBtn, TweenInfo.new(0.10), {Size=UDim2.new(1,0,0,math.max(48, 60*SCALE))}):Play()
-
+    TweenService:Create(MassBtn, TweenInfo.new(0.10), {Size=UDim2.new(1,0,0,math.max(48,60*SCALE))}):Play()
     if massRunning then
-        StopMassAttack()
-        massRunning = false
-        SetMassUI(false)
+        StopMassAttack(); massRunning = false; SetMassUI(false)
     else
-        massRunning = true
-        SetMassUI(true)
+        massRunning = true; SetMassUI(true)
         StartMassAttack(
             function(msg, active)
-                MassStatTxt.Text = msg
-                MassKillTxt.Text = MassAttack.killed .. " kills"
-                if not active then
-                    MassStatDot.BackgroundColor3 = Color3.fromRGB(255, 180, 50)
-                end
+                MassStatTxt.Text = msg; MassKillTxt.Text = MassAttack.killed.." kills"
+                if not active then MassStatDot.BackgroundColor3 = Color3.fromRGB(255,180,50) end
             end,
-            function(on)
-                massRunning = false
-                SetMassUI(false)
-            end
+            function(on) massRunning = false; SetMassUI(false) end
         )
     end
 end)
 
--- live enemy scan update
 task.spawn(function()
     while ScreenGui.Parent do
         local enemies = GetEnemies()
         local n = #enemies
         if n > 0 then
-            EnemyCountTxt.Text      = "👾 " .. n .. " musuh"
-            EnemyCountTxt.TextColor3= Color3.fromRGB(80, 230, 120)
+            EnemyCountTxt.Text = "👾 "..n.." musuh"; EnemyCountTxt.TextColor3 = Color3.fromRGB(80,230,120)
         else
-            EnemyCountTxt.Text      = "⚠ Tidak ada musuh"
-            EnemyCountTxt.TextColor3= Color3.fromRGB(220, 130, 60)
+            EnemyCountTxt.Text = "⚠ Tidak ada musuh"; EnemyCountTxt.TextColor3 = Color3.fromRGB(220,130,60)
         end
         MassKillTxt.Text = MassAttack.killed.." kills | "..MassAttack.collected.." items"
         task.wait(1.5)
@@ -964,193 +907,140 @@ end)
 -- PANEL: MAP ROTATION
 -- =====================================================
 local PanelMap = NewPanel("map")
-
 MakeLabel(PanelMap, "🗺   MAP ROTATION", 1.1, Color3.fromRGB(160, 110, 255))
 MakeLabel(PanelMap, "Pilih map → Mass Attack otomatis", 0.9, Color3.fromRGB(100, 78, 145))
 MakeSep(PanelMap)
 
 local MapStatBar = Instance.new("Frame", PanelMap)
-MapStatBar.Size             = UDim2.new(1, 0, 0, math.max(28, 34*SCALE))
-MapStatBar.BackgroundColor3 = Color3.fromRGB(11, 6, 26)
-MapStatBar.BorderSizePixel  = 0
-Instance.new("UICorner", MapStatBar).CornerRadius = UDim.new(0, math.max(7, 9*SCALE))
-local msbS2 = Instance.new("UIStroke", MapStatBar)
-msbS2.Color = Color3.fromRGB(42, 16, 80); msbS2.Thickness = 1
+MapStatBar.Size = UDim2.new(1, 0, 0, math.max(28,34*SCALE)); MapStatBar.BackgroundColor3 = Color3.fromRGB(11,6,26)
+MapStatBar.BorderSizePixel = 0; Instance.new("UICorner", MapStatBar).CornerRadius = UDim.new(0, math.max(7,9*SCALE))
+local msbS2 = Instance.new("UIStroke", MapStatBar); msbS2.Color = Color3.fromRGB(42,16,80); msbS2.Thickness = 1
 
 local MapStatDot = Instance.new("Frame", MapStatBar)
-MapStatDot.Size             = UDim2.new(0, dotSize, 0, dotSize)
-MapStatDot.Position         = UDim2.new(0, math.max(8, 10*SCALE), 0.5, -dotSize/2)
-MapStatDot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-MapStatDot.BorderSizePixel  = 0
+MapStatDot.Size = UDim2.new(0, dotSize, 0, dotSize); MapStatDot.Position = UDim2.new(0, math.max(8,10*SCALE), 0.5, -dotSize/2)
+MapStatDot.BackgroundColor3 = Color3.fromRGB(80,80,80); MapStatDot.BorderSizePixel = 0
 Instance.new("UICorner", MapStatDot).CornerRadius = UDim.new(1, 0)
 
 local MapStatTxt = Instance.new("TextLabel", MapStatBar)
-MapStatTxt.Size              = UDim2.new(1, -math.max(16, 24*SCALE), 1, 0)
-MapStatTxt.Position          = UDim2.new(0, math.max(18, 24*SCALE), 0, 0)
-MapStatTxt.BackgroundTransparency = 1
-MapStatTxt.Text              = "STANDBY — Pilih map"
-MapStatTxt.TextSize          = scaleFontSize(8)
-MapStatTxt.Font              = Enum.Font.Gotham
-MapStatTxt.TextColor3        = Color3.fromRGB(108, 96, 138)
-MapStatTxt.TextXAlignment    = Enum.TextXAlignment.Left
-MapStatTxt.TextTruncate      = Enum.TextTruncate.AtEnd
+MapStatTxt.Size = UDim2.new(1, -math.max(16,24*SCALE), 1, 0); MapStatTxt.Position = UDim2.new(0, math.max(18,24*SCALE), 0, 0)
+MapStatTxt.BackgroundTransparency = 1; MapStatTxt.Text = "STANDBY — Pilih map"
+MapStatTxt.TextSize = scaleFontSize(8); MapStatTxt.Font = Enum.Font.Gotham
+MapStatTxt.TextColor3 = Color3.fromRGB(108,96,138); MapStatTxt.TextXAlignment = Enum.TextXAlignment.Left
+MapStatTxt.TextTruncate = Enum.TextTruncate.AtEnd
 
--- select all / clear buttons
 local function SmallBtn(txt, col)
     local b = Instance.new("TextButton", PanelMap)
-    b.Size             = UDim2.new(0.5, -math.max(2, 3*SCALE), 0, math.max(16, 20*SCALE))
-    b.BackgroundColor3 = col or Color3.fromRGB(46, 20, 90)
-    b.BorderSizePixel  = 0
-    b.Text             = txt
-    b.TextSize         = scaleFontSize(7)
-    b.Font             = Enum.Font.GothamBold
-    b.TextColor3       = Color3.fromRGB(185, 145, 255)
-    b.AutoButtonColor  = false
+    b.Size = UDim2.new(0.5, -math.max(2,3*SCALE), 0, math.max(16,20*SCALE))
+    b.BackgroundColor3 = col or Color3.fromRGB(46,20,90); b.BorderSizePixel = 0
+    b.Text = txt; b.TextSize = scaleFontSize(7); b.Font = Enum.Font.GothamBold
+    b.TextColor3 = Color3.fromRGB(185,145,255); b.AutoButtonColor = false
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
     return b
 end
 
 local btnContainer = Instance.new("Frame", PanelMap)
-btnContainer.Size = UDim2.new(1, 0, 0, math.max(18, 20*SCALE))
-btnContainer.BackgroundTransparency = 1
-local btnLayout = Instance.new("UIListLayout", btnContainer)
-btnLayout.FillDirection = Enum.FillDirection.Horizontal
-btnLayout.Padding = UDim.new(0, math.max(2, 4*SCALE))
+btnContainer.Size = UDim2.new(1, 0, 0, math.max(18,20*SCALE)); btnContainer.BackgroundTransparency = 1
+local btnLayout = Instance.new("UIListLayout", btnContainer); btnLayout.FillDirection = Enum.FillDirection.Horizontal
+btnLayout.Padding = UDim.new(0, math.max(2,4*SCALE))
 
-local SABtn = SmallBtn("Select All", Color3.fromRGB(40, 18, 88))
-SABtn.Parent = btnContainer
-local CLBtn = SmallBtn("Clear", Color3.fromRGB(26, 10, 48))
-CLBtn.Parent = btnContainer
+local SABtn = SmallBtn("Select All", Color3.fromRGB(40,18,88)); SABtn.Parent = btnContainer
+local CLBtn = SmallBtn("Clear", Color3.fromRGB(26,10,48)); CLBtn.Parent = btnContainer
 
 local MapCntLbl = Instance.new("TextLabel", PanelMap)
-MapCntLbl.Size              = UDim2.new(1, 0, 0, math.max(16, 20*SCALE))
-MapCntLbl.BackgroundTransparency = 1
-MapCntLbl.Text              = "0 dipilih"
-MapCntLbl.TextSize          = scaleFontSize(7)
-MapCntLbl.Font              = Enum.Font.Gotham
-MapCntLbl.TextColor3        = Color3.fromRGB(110, 82, 162)
-MapCntLbl.TextXAlignment    = Enum.TextXAlignment.Center
+MapCntLbl.Size = UDim2.new(1,0,0,math.max(16,20*SCALE)); MapCntLbl.BackgroundTransparency = 1
+MapCntLbl.Text = "0 dipilih"; MapCntLbl.TextSize = scaleFontSize(7); MapCntLbl.Font = Enum.Font.Gotham
+MapCntLbl.TextColor3 = Color3.fromRGB(110,82,162); MapCntLbl.TextXAlignment = Enum.TextXAlignment.Center
 
--- map scroll 2-column
 local MapScroll = Instance.new("ScrollingFrame", PanelMap)
-MapScroll.Size                = UDim2.new(1, 0, 0, math.max(180, 270*SCALE))
-MapScroll.BackgroundColor3    = Color3.fromRGB(10, 5, 22)
-MapScroll.BorderSizePixel     = 0
-MapScroll.ScrollBarThickness  = math.max(3, 4*SCALE)
-MapScroll.ScrollBarImageColor3= Color3.fromRGB(90, 38, 185)
-MapScroll.CanvasSize          = UDim2.new(0, 0, 0, 0)
-MapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-Instance.new("UICorner", MapScroll).CornerRadius = UDim.new(0, math.max(8, 11*SCALE))
-local msS2 = Instance.new("UIStroke", MapScroll)
-msS2.Color = Color3.fromRGB(42, 16, 80); msS2.Thickness = 1
+MapScroll.Size = UDim2.new(1, 0, 0, math.max(180,270*SCALE)); MapScroll.BackgroundColor3 = Color3.fromRGB(10,5,22)
+MapScroll.BorderSizePixel = 0; MapScroll.ScrollBarThickness = math.max(3,4*SCALE)
+MapScroll.ScrollBarImageColor3 = Color3.fromRGB(90,38,185); MapScroll.CanvasSize = UDim2.new(0,0,0,0)
+MapScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y; Instance.new("UICorner", MapScroll).CornerRadius = UDim.new(0, math.max(8,11*SCALE))
+local msS2 = Instance.new("UIStroke", MapScroll); msS2.Color = Color3.fromRGB(42,16,80); msS2.Thickness = 1
 
 local MapGrid = Instance.new("UIGridLayout", MapScroll)
-MapGrid.CellSize    = UDim2.new(0.5, -math.max(3, 8*SCALE), 0, math.max(26, 34*SCALE))
-MapGrid.CellPadding = UDim2.new(0, math.max(2, 6*SCALE), 0, math.max(3, 5*SCALE))
-MapGrid.SortOrder   = Enum.SortOrder.LayoutOrder
+MapGrid.CellSize = UDim2.new(0.5, -math.max(3,8*SCALE), 0, math.max(26,34*SCALE))
+MapGrid.CellPadding = UDim2.new(0, math.max(2,6*SCALE), 0, math.max(3,5*SCALE))
+MapGrid.SortOrder = Enum.SortOrder.LayoutOrder
 
 local mgPad = Instance.new("UIPadding", MapScroll)
-mgPad.PaddingTop    = UDim.new(0, math.max(3, 6*SCALE))
-mgPad.PaddingLeft   = UDim.new(0, math.max(3, 6*SCALE))
-mgPad.PaddingRight  = UDim.new(0, math.max(3, 6*SCALE))
-mgPad.PaddingBottom = UDim.new(0, math.max(3, 6*SCALE))
+mgPad.PaddingTop = UDim.new(0, math.max(3,6*SCALE)); mgPad.PaddingLeft = UDim.new(0, math.max(3,6*SCALE))
+mgPad.PaddingRight = UDim.new(0, math.max(3,6*SCALE)); mgPad.PaddingBottom = UDim.new(0, math.max(3,6*SCALE))
 
 local MapBtnRefs = {}
 local function UpdateMapCount()
     local n = 0
     for i = 1, #MAPS do if MapRotation.selected[i] then n = n+1 end end
-    MapCntLbl.Text = n .. " dipilih"
+    MapCntLbl.Text = n.." dipilih"
 end
 
 local function SetMapSel(i, on)
     MapRotation.selected[i] = on or nil
-    local r = MapBtnRefs[i]
-    if not r then return end
-    TweenService:Create(r.btn, TweenInfo.new(0.14), {
-        BackgroundColor3 = on and Color3.fromRGB(78,24,172) or Color3.fromRGB(14,7,30)
-    }):Play()
-    r.stroke.Color   = on and Color3.fromRGB(140,62,245) or Color3.fromRGB(34,12,58)
-    r.chk.Text       = on and "✓" or ""
-    r.lbl.TextColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(125,95,178)
+    local r = MapBtnRefs[i]; if not r then return end
+    TweenService:Create(r.btn, TweenInfo.new(0.14), { BackgroundColor3 = on and Color3.fromRGB(78,24,172) or Color3.fromRGB(14,7,30) }):Play()
+    r.stroke.Color = on and Color3.fromRGB(140,62,245) or Color3.fromRGB(34,12,58)
+    r.chk.Text = on and "✓" or ""; r.lbl.TextColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(125,95,178)
     UpdateMapCount()
 end
 
 local icons = {"🗡","⚔","🏹","🔱","💀","🌑","🔥","⚡","🌀","❄","🌊","🪄","👁","🐉","⭐","💫","🌙","☄"}
 for i, mapData in ipairs(MAPS) do
     local btn = Instance.new("TextButton", MapScroll)
-    btn.LayoutOrder      = i
-    btn.BackgroundColor3 = Color3.fromRGB(14, 7, 30)
-    btn.BorderSizePixel  = 0
-    btn.Text             = ""
-    btn.AutoButtonColor  = false
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, math.max(6, 9*SCALE))
+    btn.LayoutOrder = i; btn.BackgroundColor3 = Color3.fromRGB(14,7,30)
+    btn.BorderSizePixel = 0; btn.Text = ""; btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, math.max(6,9*SCALE))
 
-    local stk = Instance.new("UIStroke", btn)
-    stk.Color = Color3.fromRGB(34, 12, 58); stk.Thickness = 1
+    local stk = Instance.new("UIStroke", btn); stk.Color = Color3.fromRGB(34,12,58); stk.Thickness = 1
 
+    local iconSz = math.max(10, 14*SCALE)
     local ic = Instance.new("TextLabel", btn)
-    local iconSize = math.max(10, 14*SCALE)
-    ic.Size = UDim2.new(0, iconSize+2, 1, 0); ic.Position = UDim2.new(0, math.max(2, 6*SCALE), 0, 0)
-    ic.BackgroundTransparency = 1
-    ic.Text = icons[i] or "🗡"; ic.TextSize = iconSize
-    ic.Font = Enum.Font.GothamBold; ic.TextColor3 = Color3.fromRGB(255, 200, 55)
+    ic.Size = UDim2.new(0, iconSz+2, 1, 0); ic.Position = UDim2.new(0, math.max(2,6*SCALE), 0, 0)
+    ic.BackgroundTransparency = 1; ic.Text = icons[i] or "🗡"; ic.TextSize = iconSz
+    ic.Font = Enum.Font.GothamBold; ic.TextColor3 = Color3.fromRGB(255,200,55)
 
     local lbl = Instance.new("TextLabel", btn)
-    lbl.Size = UDim2.new(1,-math.max(28, 44*SCALE),1,0); lbl.Position = UDim2.new(0,math.max(16, 30*SCALE),0,0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = mapData.name; lbl.TextSize = scaleFontSize(9)
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextColor3 = Color3.fromRGB(125,95,178)
+    lbl.Size = UDim2.new(1,-math.max(28,44*SCALE),1,0); lbl.Position = UDim2.new(0,math.max(16,30*SCALE),0,0)
+    lbl.BackgroundTransparency = 1; lbl.Text = mapData.name; lbl.TextSize = scaleFontSize(9)
+    lbl.Font = Enum.Font.GothamBold; lbl.TextColor3 = Color3.fromRGB(125,95,178)
     lbl.TextXAlignment = Enum.TextXAlignment.Left
 
     local chk = Instance.new("TextLabel", btn)
-    chk.Size = UDim2.new(0,math.max(12, 18*SCALE),1,0); chk.Position = UDim2.new(1,-math.max(14, 20*SCALE),0,0)
-    chk.BackgroundTransparency = 1
-    chk.Text = ""; chk.TextSize = scaleFontSize(10)
-    chk.Font = Enum.Font.GothamBold
-    chk.TextColor3 = Color3.fromRGB(62, 245, 110)
+    chk.Size = UDim2.new(0,math.max(12,18*SCALE),1,0); chk.Position = UDim2.new(1,-math.max(14,20*SCALE),0,0)
+    chk.BackgroundTransparency = 1; chk.Text = ""; chk.TextSize = scaleFontSize(10)
+    chk.Font = Enum.Font.GothamBold; chk.TextColor3 = Color3.fromRGB(62,245,110)
 
     MapBtnRefs[i] = {btn=btn, stroke=stk, chk=chk, lbl=lbl}
-    btn.MouseButton1Click:Connect(function()
-        SetMapSel(i, not MapRotation.selected[i])
-    end)
+    btn.MouseButton1Click:Connect(function() SetMapSel(i, not MapRotation.selected[i]) end)
 end
 
 SABtn.MouseButton1Click:Connect(function() for i=1,#MAPS do SetMapSel(i,true) end end)
 CLBtn.MouseButton1Click:Connect(function() for i=1,#MAPS do SetMapSel(i,false) end end)
 
--- delay row
 MakeSep(PanelMap)
-MakeLabel(PanelMap, "⏱   DELAY PER MAP", 0.9, Color3.fromRGB(140, 96, 218))
+MakeLabel(PanelMap, "⏱   DELAY PER MAP", 0.9, Color3.fromRGB(140,96,218))
 
 local mapDelayOpts = {3,5,8,10,15,20,30}
-local mapDelayIdx  = 2
-MapRotation.delay  = mapDelayOpts[mapDelayIdx]
+local mapDelayIdx  = 2; MapRotation.delay = mapDelayOpts[mapDelayIdx]
 local mapDelayRefs = {}
 
 local mdRow = Instance.new("Frame", PanelMap)
-mdRow.Size = UDim2.new(1, 0, 0, math.max(20, 26*SCALE))
-mdRow.BackgroundTransparency = 1
-local mdL = Instance.new("UIListLayout", mdRow)
-mdL.FillDirection = Enum.FillDirection.Horizontal
-mdL.Padding = UDim.new(0, math.max(2, 4*SCALE))
+mdRow.Size = UDim2.new(1, 0, 0, math.max(20,26*SCALE)); mdRow.BackgroundTransparency = 1
+local mdL = Instance.new("UIListLayout", mdRow); mdL.FillDirection = Enum.FillDirection.Horizontal
+mdL.Padding = UDim.new(0, math.max(2,4*SCALE))
 
 for di, sec in ipairs(mapDelayOpts) do
     local db = Instance.new("TextButton", mdRow)
-    db.Size = UDim2.new(0, math.max(24, 40*SCALE), 1, 0)
+    db.Size = UDim2.new(0, math.max(24,40*SCALE), 1, 0)
     db.BackgroundColor3 = di==mapDelayIdx and Color3.fromRGB(75,24,165) or Color3.fromRGB(14,8,30)
     db.BorderSizePixel = 0; db.Text = sec.."s"; db.TextSize = scaleFontSize(7)
     db.Font = Enum.Font.GothamBold
     db.TextColor3 = di==mapDelayIdx and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,165)
-    db.AutoButtonColor = false
-    Instance.new("UICorner", db).CornerRadius = UDim.new(0,4)
+    db.AutoButtonColor = false; Instance.new("UICorner", db).CornerRadius = UDim.new(0, 4)
     mapDelayRefs[di] = db
     db.MouseButton1Click:Connect(function()
         mapDelayIdx = di; MapRotation.delay = sec
         for j, ref in ipairs(mapDelayRefs) do
-            TweenService:Create(ref, TweenInfo.new(0.14), {
-                BackgroundColor3 = j==di and Color3.fromRGB(75,24,165) or Color3.fromRGB(14,8,30)
-            }):Play()
+            TweenService:Create(ref, TweenInfo.new(0.14), { BackgroundColor3 = j==di and Color3.fromRGB(75,24,165) or Color3.fromRGB(14,8,30) }):Play()
             ref.TextColor3 = j==di and Color3.fromRGB(255,255,255) or Color3.fromRGB(115,88,165)
         end
     end)
@@ -1165,24 +1055,14 @@ local mapLoopRunning = false
 
 local function SetMapGoUI(on)
     if on then
-        goBtnGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(190,40,40)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(130,14,14)),
-        })
-        GoBtnEmoji.Text = "🛑"; GoBtnLbl.Text = "STOP ROTATION"
-        GoBtnSub.Text   = "KLIK UNTUK BERHENTI"
-        MapStatDot.BackgroundColor3 = Color3.fromRGB(52,248,95)
-        MapStatTxt.TextColor3       = Color3.fromRGB(52,248,95)
+        goBtnGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(190,40,40)), ColorSequenceKeypoint.new(1, Color3.fromRGB(130,14,14)) })
+        GoBtnEmoji.Text = "🛑"; GoBtnLbl.Text = "STOP ROTATION"; GoBtnSub.Text = "KLIK UNTUK BERHENTI"
+        MapStatDot.BackgroundColor3 = Color3.fromRGB(52,248,95); MapStatTxt.TextColor3 = Color3.fromRGB(52,248,95)
     else
-        goBtnGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(130,48,255)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(68,14,165)),
-        })
-        GoBtnEmoji.Text = "🚀"; GoBtnLbl.Text = "START ROTATION"
-        GoBtnSub.Text   = "AUTO PINDAH MAP"
-        MapStatDot.BackgroundColor3 = Color3.fromRGB(80,80,80)
-        MapStatTxt.TextColor3       = Color3.fromRGB(108,96,138)
-        MapStatTxt.Text             = "STANDBY — Pilih map"
+        goBtnGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(130,48,255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(68,14,165)) })
+        GoBtnEmoji.Text = "🚀"; GoBtnLbl.Text = "START ROTATION"; GoBtnSub.Text = "AUTO PINDAH MAP"
+        MapStatDot.BackgroundColor3 = Color3.fromRGB(80,80,80); MapStatTxt.TextColor3 = Color3.fromRGB(108,96,138)
+        MapStatTxt.Text = "STANDBY — Pilih map"
     end
 end
 
@@ -1191,60 +1071,38 @@ GoBtn.MouseButton1Click:Connect(function()
         local has = false
         for i=1,#MAPS do if MapRotation.selected[i] then has=true; break end end
         if not has then
-            MapStatTxt.Text      = "⚠ Pilih minimal 1 map!"
-            MapStatTxt.TextColor3= Color3.fromRGB(255,145,50)
+            MapStatTxt.Text = "⚠ Pilih minimal 1 map!"; MapStatTxt.TextColor3 = Color3.fromRGB(255,145,50)
             task.delay(2, function()
                 if not mapLoopRunning then
-                    MapStatTxt.Text      = "STANDBY — Pilih map"
-                    MapStatTxt.TextColor3= Color3.fromRGB(108,96,138)
+                    MapStatTxt.Text = "STANDBY — Pilih map"; MapStatTxt.TextColor3 = Color3.fromRGB(108,96,138)
                 end
             end)
             return
         end
     end
-    TweenService:Create(GoBtn, TweenInfo.new(0.07), {Size=UDim2.new(1,0,0,math.max(44, 56*SCALE))}):Play()
+
+    TweenService:Create(GoBtn, TweenInfo.new(0.07), {Size=UDim2.new(1,0,0,math.max(44,56*SCALE))}):Play()
     task.wait(0.07)
-    TweenService:Create(GoBtn, TweenInfo.new(0.10), {Size=UDim2.new(1,0,0,math.max(48, 60*SCALE))}):Play()
+    TweenService:Create(GoBtn, TweenInfo.new(0.10), {Size=UDim2.new(1,0,0,math.max(48,60*SCALE))}):Play()
 
     if mapLoopRunning then
-        StopMassAttack()
-        mapLoopRunning = false
-        massRunning    = false
-        SetMapGoUI(false)
-        SetMassUI(false)
+        StopMassAttack(); mapLoopRunning = false; massRunning = false; SetMapGoUI(false); SetMassUI(false)
     else
-        mapLoopRunning = true
-        massRunning    = true
-        SetMapGoUI(true)
-        SetMassUI(true)
-
+        mapLoopRunning = true; massRunning = true; SetMapGoUI(true); SetMassUI(true)
         local selectedIdxList = {}
-        for i = 1, #MAPS do
-            if MapRotation.selected[i] then
-                table.insert(selectedIdxList, i)
-            end
-        end
+        for i=1,#MAPS do if MapRotation.selected[i] then table.insert(selectedIdxList, i) end end
         MapRotation.selected = {}
-        for _, idx in ipairs(selectedIdxList) do
-            table.insert(MapRotation.selected, idx)
-        end
-
+        for _, idx in ipairs(selectedIdxList) do table.insert(MapRotation.selected, idx) end
         StartMassAttack(
             function(msg, active)
-                MapStatTxt.Text  = msg
-                MassStatTxt.Text = msg
+                MapStatTxt.Text = msg; MassStatTxt.Text = msg
                 MassKillTxt.Text = MassAttack.killed.." kills | "..MassAttack.collected.." items"
                 if not active then
                     MapStatDot.BackgroundColor3 = Color3.fromRGB(255,180,50)
-                    MassStatDot.BackgroundColor3= Color3.fromRGB(255,180,50)
+                    MassStatDot.BackgroundColor3 = Color3.fromRGB(255,180,50)
                 end
             end,
-            function(on)
-                mapLoopRunning = false
-                massRunning    = false
-                SetMapGoUI(false)
-                SetMassUI(false)
-            end
+            function(on) mapLoopRunning = false; massRunning = false; SetMapGoUI(false); SetMassUI(false) end
         )
     end
 end)
@@ -1254,42 +1112,38 @@ end)
 -- =====================================================
 local PanelRaid = NewPanel("raid")
 MakeLabel(PanelRaid, "⚡   AUTO RAID", 1.1, Color3.fromRGB(160, 110, 255))
-MakeLabel(PanelRaid, "Auto masuk dan clear raid dungeon otomatis", 0.9, Color3.fromRGB(100, 78, 145))
-MakeSep(PanelRaid)
-MakeComingSoon(PanelRaid, "Auto Raid")
+MakeLabel(PanelRaid, "Auto masuk dan clear raid dungeon", 0.9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelRaid); MakeComingSoon(PanelRaid, "Auto Raid")
 
 local PanelEquip = NewPanel("equip")
 MakeLabel(PanelEquip, "🎲   AUTO ROLL EQUIPMENT", 1.1, Color3.fromRGB(160, 110, 255))
 MakeLabel(PanelEquip, "Auto roll equipment hero", 0.9, Color3.fromRGB(100, 78, 145))
-MakeSep(PanelEquip)
-MakeComingSoon(PanelEquip, "Auto Roll Equipment")
+MakeSep(PanelEquip); MakeComingSoon(PanelEquip, "Auto Roll Equipment")
 
 local PanelSword = NewPanel("sword")
 MakeLabel(PanelSword, "🗡   AUTO ROLL SWORD", 1.1, Color3.fromRGB(160, 110, 255))
-MakeLabel(PanelSword, "Auto roll sword hingga mendapat stat terbaik", 0.9, Color3.fromRGB(100, 78, 145))
-MakeSep(PanelSword)
-MakeComingSoon(PanelSword, "Auto Roll Sword")
+MakeLabel(PanelSword, "Auto roll sword hingga stat terbaik", 0.9, Color3.fromRGB(100, 78, 145))
+MakeSep(PanelSword); MakeComingSoon(PanelSword, "Auto Roll Sword")
 
 local PanelAbility = NewPanel("ability")
 MakeLabel(PanelAbility, "✨   AUTO ROLL HERO ABILITY", 1.1, Color3.fromRGB(160, 110, 255))
 MakeLabel(PanelAbility, "Auto roll ability hero", 0.9, Color3.fromRGB(100, 78, 145))
-MakeSep(PanelAbility)
-MakeComingSoon(PanelAbility, "Auto Roll Hero Ability")
+MakeSep(PanelAbility); MakeComingSoon(PanelAbility, "Auto Roll Hero Ability")
 
 -- =====================================================
--- SIDEBAR NAV - RESPONSIVE
+-- SIDEBAR NAV
 -- =====================================================
 local NAV_ITEMS = {
-    { icon="⚔",  label="Attack",        tag="mass"    },
-    { icon="🗺",  label="Rotation",     tag="map"     },
-    { icon="⚡",  label="Raid",         tag="raid"    },
-    { icon="🎲",  label="Equip",        tag="equip"   },
-    { icon="🗡",  label="Sword",        tag="sword"   },
-    { icon="✨",  label="Ability",      tag="ability" },
+    { icon="⚔",  label="Attack",   tag="mass"    },
+    { icon="🗺",  label="Rotation", tag="map"     },
+    { icon="⚡",  label="Raid",     tag="raid"    },
+    { icon="🎲",  label="Equip",    tag="equip"   },
+    { icon="🗡",  label="Sword",    tag="sword"   },
+    { icon="✨",  label="Ability",  tag="ability" },
 }
 
-local NavBtnRefs = {}
-local ActiveTag  = "mass"
+local NavBtnRefs   = {}
+local ActiveTag    = "mass"
 local navBtnHeight = math.max(40, 52*SCALE)
 
 local function SwitchTab(tag)
@@ -1298,9 +1152,7 @@ local function SwitchTab(tag)
     if Panels[tag] then Panels[tag].Visible = true end
     for _, ref in pairs(NavBtnRefs) do
         local on = (ref.tag == tag)
-        TweenService:Create(ref.bg, TweenInfo.new(0.16), {
-            BackgroundColor3 = on and Color3.fromRGB(72,24,165) or Color3.fromRGB(10,6,24)
-        }):Play()
+        TweenService:Create(ref.bg, TweenInfo.new(0.16), { BackgroundColor3 = on and Color3.fromRGB(72,24,165) or Color3.fromRGB(10,6,24) }):Play()
         ref.ibg.BackgroundColor3 = on and Color3.fromRGB(105,42,228) or Color3.fromRGB(20,10,44)
         ref.lbl.TextColor3       = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(110,84,158)
         ref.stroke.Transparency  = on and 0.5 or 1
@@ -1308,57 +1160,41 @@ local function SwitchTab(tag)
 end
 
 local navLayout = Instance.new("UIListLayout", Sidebar)
-navLayout.SortOrder = Enum.SortOrder.LayoutOrder
-navLayout.Padding = UDim.new(0, math.max(2, 4*SCALE))
+navLayout.SortOrder = Enum.SortOrder.LayoutOrder; navLayout.Padding = UDim.new(0, math.max(2,4*SCALE))
 
 local navPad = Instance.new("UIPadding", Sidebar)
-navPad.PaddingLeft = UDim.new(0, math.max(4, 8*SCALE))
-navPad.PaddingRight = UDim.new(0, math.max(4, 8*SCALE))
-navPad.PaddingTop = UDim.new(0, math.max(4, 8*SCALE))
-navPad.PaddingBottom = UDim.new(0, math.max(4, 8*SCALE))
+navPad.PaddingLeft = UDim.new(0, math.max(4,8*SCALE)); navPad.PaddingRight = UDim.new(0, math.max(4,8*SCALE))
+navPad.PaddingTop  = UDim.new(0, math.max(4,8*SCALE)); navPad.PaddingBottom = UDim.new(0, math.max(4,8*SCALE))
 
 for idx, item in ipairs(NAV_ITEMS) do
     local bg = Instance.new("TextButton", Sidebar)
-    bg.LayoutOrder      = idx
-    bg.Size             = UDim2.new(1, 0, 0, navBtnHeight)
-    bg.BackgroundColor3 = Color3.fromRGB(10, 6, 24)
-    bg.BorderSizePixel  = 0
-    bg.Text             = ""
-    bg.AutoButtonColor  = false
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, math.max(8, 11*SCALE))
+    bg.LayoutOrder = idx; bg.Size = UDim2.new(1, 0, 0, navBtnHeight)
+    bg.BackgroundColor3 = Color3.fromRGB(10,6,24); bg.BorderSizePixel = 0; bg.Text = ""; bg.AutoButtonColor = false
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, math.max(8,11*SCALE))
 
     local bgS = Instance.new("UIStroke", bg)
     bgS.Color = Color3.fromRGB(115,48,255); bgS.Thickness = 1.2; bgS.Transparency = 1
 
-    local iconSize = math.max(18, 30*SCALE)
+    local iconSz = math.max(18, 30*SCALE)
     local ibg = Instance.new("Frame", bg)
-    ibg.Size             = UDim2.new(0, iconSize, 0, iconSize)
-    ibg.Position         = UDim2.new(0.5, -iconSize/2, 0, math.max(2, 4*SCALE))
-    ibg.BackgroundColor3 = Color3.fromRGB(20, 10, 44)
-    ibg.BorderSizePixel  = 0
-    Instance.new("UICorner", ibg).CornerRadius = UDim.new(0, math.max(6, 8*SCALE))
+    ibg.Size = UDim2.new(0, iconSz, 0, iconSz); ibg.Position = UDim2.new(0.5, -iconSz/2, 0, math.max(2,4*SCALE))
+    ibg.BackgroundColor3 = Color3.fromRGB(20,10,44); ibg.BorderSizePixel = 0
+    Instance.new("UICorner", ibg).CornerRadius = UDim.new(0, math.max(6,8*SCALE))
 
     local ic = Instance.new("TextLabel", ibg)
-    ic.Size = UDim2.new(1,0,1,0); ic.BackgroundTransparency = 1
-    ic.Text = item.icon; ic.TextSize = math.max(10, 15*SCALE)
-    ic.Font = Enum.Font.GothamBold
-    ic.TextColor3 = Color3.fromRGB(255, 210, 55)
+    ic.Size = UDim2.new(1,0,1,0); ic.BackgroundTransparency = 1; ic.Text = item.icon
+    ic.TextSize = math.max(10,15*SCALE); ic.Font = Enum.Font.GothamBold; ic.TextColor3 = Color3.fromRGB(255,210,55)
 
     local lbl = Instance.new("TextLabel", bg)
-    lbl.Size = UDim2.new(1, 0, 0, math.max(10, 14*SCALE))
-    lbl.Position = UDim2.new(0, 0, 1, -math.max(12, 16*SCALE))
-    lbl.BackgroundTransparency = 1
-    lbl.Text = item.label; lbl.TextSize = scaleFontSize(6)
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextColor3 = Color3.fromRGB(110, 84, 158)
-    lbl.TextXAlignment = Enum.TextXAlignment.Center
-    lbl.TextWrapped = true
+    lbl.Size = UDim2.new(1, 0, 0, math.max(10,14*SCALE)); lbl.Position = UDim2.new(0, 0, 1, -math.max(12,16*SCALE))
+    lbl.BackgroundTransparency = 1; lbl.Text = item.label; lbl.TextSize = scaleFontSize(6)
+    lbl.Font = Enum.Font.GothamBold; lbl.TextColor3 = Color3.fromRGB(110,84,158)
+    lbl.TextXAlignment = Enum.TextXAlignment.Center; lbl.TextWrapped = true
 
     NavBtnRefs[idx] = {tag=item.tag, bg=bg, ibg=ibg, lbl=lbl, stroke=bgS}
-
     bg.MouseButton1Click:Connect(function()
         SwitchTab(item.tag)
-        TweenService:Create(bg, TweenInfo.new(0.06), {Size=UDim2.new(1,0,0,navBtnHeight-math.max(2, 4*SCALE))}):Play()
+        TweenService:Create(bg, TweenInfo.new(0.06), {Size=UDim2.new(1,0,0,navBtnHeight-math.max(2,4*SCALE))}):Play()
         task.wait(0.06)
         TweenService:Create(bg, TweenInfo.new(0.10), {Size=UDim2.new(1,0,0,navBtnHeight)}):Play()
     end)
@@ -1367,7 +1203,7 @@ end
 SwitchTab("mass")
 
 -- =====================================================
--- DRAG & DROP
+-- DRAG GUI (Title Bar)
 -- =====================================================
 do
     local drag, ds, dp = false, nil, nil
@@ -1380,9 +1216,8 @@ do
     UserInputService.InputChanged:Connect(function(i)
         if drag and (i.UserInputType==Enum.UserInputType.MouseMovement
                   or i.UserInputType==Enum.UserInputType.Touch) then
-            local d = i.Position-ds
-            Win.Position = UDim2.new(dp.X.Scale,dp.X.Offset+d.X,
-                                      dp.Y.Scale,dp.Y.Offset+d.Y)
+            local d = i.Position - ds
+            Win.Position = UDim2.new(dp.X.Scale, dp.X.Offset+d.X, dp.Y.Scale, dp.Y.Offset+d.Y)
         end
     end)
     UserInputService.InputEnded:Connect(function(i)
@@ -1392,23 +1227,23 @@ do
 end
 
 -- =====================================================
--- MINIMIZE
+-- MINIMIZE (Desktop only)
 -- =====================================================
-local minimized = false
-MinBtn.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    TweenService:Create(Win, TweenInfo.new(0.28, Enum.EasingStyle.Quart), {
-        Size = minimized and UDim2.new(0,WINDOW_WIDTH,0,TITLE_BAR_HEIGHT) or UDim2.new(0,WINDOW_WIDTH,0,WINDOW_HEIGHT)
-    }):Play()
-    MinBtn.Text = minimized and "□" or "—"
-end)
+if MinBtn then
+    local minimized = false
+    MinBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        TweenService:Create(Win, TweenInfo.new(0.28, Enum.EasingStyle.Quart), {
+            Size = minimized and UDim2.new(0,WINDOW_WIDTH,0,TITLE_BAR_HEIGHT) or UDim2.new(0,WINDOW_WIDTH,0,WINDOW_HEIGHT)
+        }):Play()
+        MinBtn.Text = minimized and "□" or "—"
+    end)
+end
 
 -- =====================================================
 -- INFO LOG
 -- =====================================================
-print("[ ASH Hub v2.0 RESPONSIVE ] Loaded ✓")
-print("[ DEVICE TYPE ] " .. (isSmartphone and "SMARTPHONE" or isTablet and "TABLET" or "DESKTOP"))
-print("[ SCALE FACTOR ] " .. tostring(math.floor(SCALE*100)) .. "%")
-print("[ WINDOW SIZE ] " .. WINDOW_WIDTH .. "x" .. WINDOW_HEIGHT)
-print("[ MASS ATTACK ] ✅ Ready")
-print("[ MAP ROTATION ] ✅ Ready")
+print("[ ASH Hub v2.1 ] Loaded ✓")
+print("[ DEVICE ] " .. (isSmartphone and "SMARTPHONE" or isTablet and "TABLET" or "DESKTOP"))
+print("[ SCALE ] " .. math.floor(SCALE*100) .. "%  |  WINDOW: " .. WINDOW_WIDTH .. "x" .. WINDOW_HEIGHT)
+print("[ FLOATING BUTTON ] " .. (isSmartphone or isTablet and "AKTIF" or "TIDAK AKTIF (Desktop)"))
